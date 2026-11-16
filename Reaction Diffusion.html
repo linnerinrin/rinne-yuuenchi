@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Reaction–Diffusion · 反应扩散</title>
+<style>
+  :root{ --bg:#07080d; --panel:rgba(20,22,32,.87); --line:rgba(255,255,255,.10);
+         --txt:#e8ebf5; --dim:#7e86a0; --acc:#7ef0c0; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:#07080d; color:var(--txt);
+        font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; display:flex; }
+  #side{width:254px; flex:0 0 254px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px); z-index:5}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#2b3245; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.15em; margin:3px 0 15px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:15px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:46px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2b3245; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(16,18,28,.95);
+         border:1px solid var(--line); border-radius:7px; padding:5px 7px; margin-bottom:2px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .grid2 button{font:inherit; font-size:11px; color:var(--txt); background:rgba(255,255,255,.05);
+                border:1px solid var(--line); border-radius:7px; padding:5px 3px; cursor:pointer; transition:.12s}
+  .grid2 button:hover{background:rgba(255,255,255,.15)}
+  .grid2 button.on{background:rgba(126,240,192,.18); border-color:var(--acc); color:#fff}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px; cursor:pointer}
+  .btns button:hover{background:rgba(255,255,255,.15)}
+  .btns button.prim{grid-column:1/-1; background:rgba(126,240,192,.20); border-color:var(--acc)}
+  #readout{color:var(--dim); font-size:11px; line-height:1.8; border-top:1px solid var(--line);
+           padding-top:9px; margin-top:13px}
+  #readout b{color:var(--txt); font-weight:500}
+  #stage{flex:1; display:flex; align-items:center; justify-content:center; padding:18px; min-width:0; position:relative}
+  #wrap{position:relative; max-width:100%; max-height:100%; aspect-ratio:1/1; width:min(100%, calc(100vh - 36px))}
+  #cv{width:100%; height:100%; display:block; border-radius:6px;
+      box-shadow:0 26px 70px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.07); cursor:crosshair; touch-action:none}
+  #hint{position:absolute; left:50%; bottom:14px; transform:translateX(-50%); color:var(--dim);
+        font-size:11px; background:rgba(7,8,13,.72); border:1px solid var(--line);
+        border-radius:8px; padding:5px 12px; pointer-events:none; white-space:nowrap}
+  #hint b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>反应<span>扩散</span></h1>
+  <div class="sub">GRAY–SCOTT TURING PATTERNS</div>
+
+  <div class="grp">图案</div>
+  <div class="grid2" id="patBox"></div>
+
+  <div class="grp">参数</div>
+  <div class="row"><label>feed f</label><b id="vF">0.055</b></div>
+  <input type="range" id="sF" min="0.005" max="0.11" step="0.001" value="0.055">
+  <div class="row"><label>kill k</label><b id="vK">0.062</b></div>
+  <input type="range" id="sK" min="0.03" max="0.075" step="0.001" value="0.062">
+  <div class="row"><label>扩散 Dv</label><b id="vDv">0.080</b></div>
+  <input type="range" id="sDv" min="0.02" max="0.12" step="0.002" value="0.08">
+  <div class="row"><label>步长 dt</label><b id="vDt">1.0</b></div>
+  <input type="range" id="sDt" min="0.2" max="1.2" step="0.05" value="1">
+
+  <div class="grp">显示</div>
+  <select id="selMap"></select>
+  <div class="row"><label>缩放</label><b id="vZoom">1.0</b></div>
+  <input type="range" id="sZoom" min="0.6" max="3" step="0.1" value="1">
+  <div class="row"><label>对比</label><b id="vGamma">1.0</b></div>
+  <input type="range" id="sGamma" min="0.4" max="2.5" step="0.05" value="1">
+
+  <div class="grp">操作</div>
+  <div class="btns">
+    <button id="bSeed" class="prim">✳ 重新播撒</button>
+    <button id="bPause">暂停</button>
+    <button id="bClear">清空</button>
+    <button id="bSave">保存 PNG</button>
+  </div>
+
+  <div id="readout">
+    网格 <b id="rN">256²</b> · <b id="rFps">--</b> fps<br>
+    步数 <b id="rSteps">0</b> · <b id="rMs">0.0</b> ms/步<br>
+    ⟨u⟩ <b id="rU">0.0000</b> · ⟨v⟩ <b id="rV">0.0000</b><br>
+    极值 u ∈ <b id="rBounds">[0,1]</b>
+  </div>
+</aside>
+
+<div id="stage">
+  <div id="wrap">
+    <canvas id="cv" width="512" height="512"></canvas>
+    <div id="hint">按住<b>拖动鼠标</b>注入化学物质 · 右键擦除</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   反应扩散(Gray–Scott 模型)
+
+     ∂u/∂t = Du∇²u − u v² + f(1−u)
+     ∂v/∂t = Dv∇²v + u v² − (f+k) v
+
+   离散:9 点拉普拉斯(含对角,权重 0.05)+ 显式欧拉
+        环绕(周期)边界
+   所有数值在纯函数里完成,便于无头验证。
+   ============================================================ */
+
+// ---------------- 核心 ----------------
+// 9 点模板正交权重:中心 −1、轴向 0.2、对角 0.05 → 总和为 0(保证常数场拉普拉斯为 0)
+const LAP_C = -1, LAP_A = 0.2, LAP_D = 0.05;
+const Du = 0.16;
+
+function makeField(N){
+  const n = N*N;
+  return { N, u: new Float64Array(n), v: new Float64Array(n),
+           u2: new Float64Array(n), v2: new Float64Array(n),
+           Du: Du, Dv: 0.08, f: 0.055, k: 0.062, dt: 1, steps: 0 };
+}
+
+// 播撒扰动:中央方块设 v=1,其余加少量噪声
+function seed(f, seedVal){
+  const { N, u, v } = f;
+  let s = (seedVal === undefined ? 12345 : seedVal) >>> 0;
+  const rnd = () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for(let i=0;i<N*N;i++){
+    u[i] = 1;
+    v[i] = 0;
+  }
+  // 中央一棵小方块 + 若干随机斑点
+  const c = N>>1, r = Math.max(2, Math.round(N*0.035));
+  for(let y=c-r;y<=c+r;y++) for(let x=c-r;x<=c+r;x++){
+    if(x<0||x>=N||y<0||y>=N) continue;
+    const i = y*N+x;
+    u[i] = 0.5; v[i] = 0.25;
+  }
+  const blobs = Math.round(N*N*0.002);
+  for(let b=0;b<blobs;b++){
+    const bx = (rnd()*N)|0, by = (rnd()*N)|0, br = 1 + ((rnd()*3)|0);
+    for(let y=by-br;y<=by+br;y++) for(let x=bx-br;x<=bx+br;x++){
+      const i = ((y+N)%N)*N + ((x+N)%N);
+      u[i] = 0.45 + rnd()*0.1; v[i] = 0.2 + rnd()*0.15;
+    }
+  }
+  f.steps = 0;
+}
+
+function clearField(f){
+  f.u.fill(1); f.v.fill(0); f.steps = 0;
+}
+
+// 一步显式欧拉。返回步长内出现的最大绝对值(用于数值健康检查)
+function step(f){
+  const { N, u, v, u2, v2 } = f;
+  const Dv = f.Dv, F = f.f, K = f.k, dt = f.dt;
+  const Du_ = f.Du;
+  let maxAbs = 0;
+  for(let y=0;y<N;y++){
+    const yUp = ((y-1+N)%N)*N, yDn = ((y+1)%N)*N, yMid = y*N;
+    for(let x=0;x<N;x++){
+      const xL = (x-1+N)%N, xR = (x+1)%N;
+      const i = yMid + x;
+      const uC = u[i], vC = v[i];
+      // 9 点拉普拉斯
+      const lu = LAP_C*uC
+        + LAP_A*(u[yMid+xL] + u[yMid+xR] + u[yUp+x] + u[yDn+x])
+        + LAP_D*(u[yUp+xL] + u[yUp+xR] + u[yDn+xL] + u[yDn+xR]);
+      const lv = LAP_C*vC
+        + LAP_A*(v[yMid+xL] + v[yMid+xR] + v[yUp+x] + v[yDn+x])
+        + LAP_D*(v[yUp+xL] + v[yUp+xR] + v[yDn+xL] + v[yDn+xR]);
+      const uvv = uC*vC*vC;
+      const nu = uC + dt*(Du_*lu - uvv + F*(1-uC));
+      const nv = vC + dt*(Dv*lv + uvv - (F+K)*vC);
+      u2[i] = nu; v2[i] = nv;
+      const a = Math.abs(nu), b = Math.abs(nv);
+      if(a > maxAbs) maxAbs = a;
+      if(b > maxAbs) maxAbs = b;
+    }
+  }
+  // 交换缓冲
+  f.u = u2; f.v = v2; f.u2 = u; f.v2 = v;
+  f.steps++;
+  return maxAbs;
+}
+
+// 统计:均值、极值、以及"图案强度"(v 的空间方差)
+function stats(f){
+  const { N, u, v } = f;
+  let su=0, sv=0, vmin=1e9, vmax=-1e9, umin=1e9, umax=-1e9;
+  for(let i=0;i<N*N;i++){
+    su += u[i]; sv += v[i];
+    if(u[i]<umin) umin=u[i]; if(u[i]>umax) umax=u[i];
+    if(v[i]<vmin) vmin=v[i]; if(v[i]>vmax) vmax=v[i];
+  }
+  const n = N*N, mu = su/n, mv = sv/n;
+  let varv = 0;
+  for(let i=0;i<n;i++){ const d = v[i]-mv; varv += d*d; }
+  return { mu, mv, umin, umax, vmin, vmax, varv: varv/n };
+}
+
+// 参数 → 图案类型(Gray–Scott 的经典分区)
+const PATTERNS = {
+  "珊瑚":   { f:0.0545, k:0.062,  Dv:0.08 },
+  "有丝分裂":{ f:0.0367, k:0.0649, Dv:0.06 },
+  "迷宫":   { f:0.029,  k:0.057,  Dv:0.10 },
+  "斑点":   { f:0.035,  k:0.060,  Dv:0.065 },
+  "蠕虫":   { f:0.058,  k:0.065,  Dv:0.09 },
+  "脉冲波": { f:0.014,  k:0.054,  Dv:0.06 },
+  "空洞":   { f:0.039,  k:0.058,  Dv:0.10 },
+  "指纹":   { f:0.037,  k:0.06,   Dv:0.05 }
+};
+
+// ============================================================
+//  浏览器部分
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("cv")){
+  const cv = document.getElementById("cv"), ctx = cv.getContext("2d", {alpha:false});
+  const CW = 512, CH = 512;
+  const N = 256;                       // 模拟网格(与画布 512 成 2 倍关系)
+  const fld = makeField(N);
+  seed(fld, 20261017);
+  let img = ctx.createImageData(N, N);
+  let off = document.createElement("canvas");
+  off.width = N; off.height = N;
+  const octx = off.getContext("2d");
+
+  const MAPS = {
+    "海藻":   [[4,10,16],[14,52,70],[32,120,120],[130,220,170],[240,255,225]],
+    "熔岩":   [[8,4,6],[90,12,20],[190,50,20],[245,150,30],[255,240,180]],
+    "冰霜":   [[4,8,20],[20,50,110],[80,130,210],[180,215,245],[255,255,255]],
+    "紫罗兰": [[10,6,20],[60,30,110],[130,70,180],[210,150,230],[250,240,255]],
+    "灰阶":   [[0,0,0],[70,70,70],[140,140,140],[205,205,205],[255,255,255]],
+    "霓虹":   [[5,2,12],[40,0,80],[150,0,140],[255,60,120],[255,220,120]]
+  };
+  let mapName = "海藻", LUT = null;
+  function buildLUT(){
+    const st = MAPS[mapName];
+    LUT = new Uint8Array(256*3);
+    for(let i=0;i<256;i++){
+      const t = i/255*(st.length-1);
+      const k = Math.min(st.length-2, Math.max(0, Math.floor(t))), fr = t-k;
+      for(let c=0;c<3;c++) LUT[i*3+c] = Math.round(st[k][c]*(1-fr)+st[k+1][c]*fr);
+    }
+  }
+  buildLUT();
+  const selMap = document.getElementById("selMap");
+  Object.keys(MAPS).forEach(k=>{ const o=document.createElement("option"); o.value=k; o.textContent=k; selMap.appendChild(o); });
+  selMap.value = mapName;
+  selMap.onchange = ()=>{ mapName = selMap.value; buildLUT(); };
+
+  let paused = false, zoom = 1, gamma = 1;
+  let fpsAcc = 0, fpsN = 0, lastMs = 0;
+
+  // 渲染:v 场 → 色表。用高分位数自适应定标,
+  // 否则不同参数下 v 的量级差别很大(0.3~0.6),固定倍数会把整片压成纯色或只剩细线。
+  function draw(){
+    const d = img.data, u = fld.u, v = fld.v;
+    const useGamma = Math.abs(gamma-1) > 0.01;
+    const g = 1/Math.max(0.05, gamma);
+    // 99.5% 分位作为白点(每像素抽样,避免每次都排 6 万个数)
+    const hist = new Float64Array(256);
+    let vmax = 1e-9;
+    for(let i=0;i<N*N;i++){
+      const q = v[i];
+      if(q > vmax) vmax = q;
+      const b = (q/2 < 1) ? Math.min(255, Math.max(0, (q/2*256)|0)) : 255;   // 负浓度会算出负下标,Float64Array 静默丢弃
+      hist[b]++;
+    }
+    let acc = 0, ref = vmax;
+    const target = N*N*0.995;
+    for(let b=255;b>=0;b--){
+      acc += hist[b];
+      if(acc >= N*N - target){ ref = Math.max(1e-6, b/256*2); break; }
+    }
+    const inv = 1/ref;
+    for(let i=0;i<N*N;i++){
+      let t = v[i]*inv;
+      t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      if(useGamma) t = Math.pow(t, g);
+      const idx = (t*255)|0;
+      const o = i*4;
+      d[o]   = LUT[idx*3];
+      d[o+1] = LUT[idx*3+1];
+      d[o+2] = LUT[idx*3+2];
+      d[o+3] = 255;
+    }
+    octx.putImageData(img, 0, 0);
+    // 主画布:清底 + 缩放绘制(zoom>1 时以中心为锚放大,超出部分自然被裁掉)
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.fillStyle = "#07080d";
+    ctx.fillRect(0,0,CW,CH);
+    ctx.setTransform(zoom, 0, 0, zoom, CW*(1-zoom)/2, CH*(1-zoom)/2);
+    ctx.drawImage(off, 0, 0, CW, CH);
+    ctx.setTransform(1,0,0,1,0,0);
+  }
+
+  const $ = id => document.getElementById(id);
+  const rFps=$("rFps"), rN=$("rN"), rSteps=$("rSteps"), rMs=$("rMs"), rU=$("rU"), rV=$("rV"), rBounds=$("rBounds");
+
+  function frame(now){
+    const dtFrame = (now - last)/1000;
+    last = now;
+    if(!paused){
+      const t0 = performance.now();
+      const stepsPerFrame = 6;
+      let mx = 0;
+      for(let s=0;s<stepsPerFrame;s++) mx = Math.max(mx, step(fld));
+      lastMs = (performance.now()-t0)/stepsPerFrame;
+      // 数值健康:显式格式必须保持有界,越界就自动回落到稳定参数
+      if(!isFinite(mx) || mx > 100){
+        fld.f = 0.055; fld.k = 0.062; fld.Dv = 0.08; fld.dt = 1;
+        syncParams();
+        seed(fld, (Math.random()*1e9)|0);
+      }
+    }
+    draw();
+    fpsAcc += dtFrame; fpsN++;
+    if(fpsN >= 20){
+      if(fpsAcc > 0) rFps.textContent = (fpsN/fpsAcc).toFixed(0);
+      fpsAcc = 0; fpsN = 0;
+    }
+    requestAnimationFrame(frame);
+  }
+  let last = performance.now();
+
+  // 读数刷新
+  setInterval(()=>{
+    const s = stats(fld);
+    rN.textContent = N + "²";
+    rSteps.textContent = fld.steps.toLocaleString();
+    rMs.textContent = lastMs.toFixed(2);
+    rU.textContent = s.mu.toFixed(4);
+    rV.textContent = s.mv.toFixed(4);
+    rBounds.textContent = "[" + s.umin.toFixed(2) + ", " + s.umax.toFixed(2) + "]";
+  }, 400);
+
+  // ---- 界面 ----
+  const patBox = document.getElementById("patBox");
+  const patBtns = {};
+  Object.keys(PATTERNS).forEach(k=>{
+    const b = document.createElement("button");
+    b.textContent = k;
+    b.onclick = ()=>{ applyPattern(k); };
+    patBox.appendChild(b); patBtns[k] = b;
+  });
+  function applyPattern(k){
+    const p = PATTERNS[k];
+    fld.f = p.f; fld.k = p.k; fld.Dv = p.Dv;
+    syncParams();
+    seed(fld, (Math.random()*1e9)|0);
+    Object.keys(patBtns).forEach(q=>patBtns[q].classList.toggle("on", q===k));
+  }
+  function syncParams(){
+    $("sF").value = fld.f; $("vF").textContent = fld.f.toFixed(3);
+    $("sK").value = fld.k; $("vK").textContent = fld.k.toFixed(3);
+    $("sDv").value = fld.Dv; $("vDv").textContent = fld.Dv.toFixed(3);
+    // 步长也要同步:数值失稳重置会把 fld.dt 改回 1,不同步的话滑块还停在旧值上
+    $("sDt").value = fld.dt; $("vDt").textContent = fld.dt.toFixed(2);
+  }
+  [["sF","f"],["sK","k"],["sDv","Dv"]].forEach(([id,key])=>{
+    const el = $(id);
+    el.oninput = () => {
+      fld[key] = +el.value;
+      $({sF:"vF",sK:"vK",sDv:"vDv"}[id]).textContent = (+el.value).toFixed(3);
+      Object.keys(patBtns).forEach(q=>patBtns[q].classList.remove("on"));
+    };
+  });
+  $("sDt").oninput = e => { fld.dt = +e.target.value; $("vDt").textContent = fld.dt.toFixed(2); };
+  $("sZoom").oninput = e => { zoom = +e.target.value; $("vZoom").textContent = zoom.toFixed(1); };
+  $("sGamma").oninput = e => { gamma = +e.target.value; $("vGamma").textContent = gamma.toFixed(2); };
+  $("bSeed").onclick = ()=>seed(fld, (Math.random()*1e9)|0);
+  $("bClear").onclick = ()=>clearField(fld);
+  $("bSave").onclick = ()=>{
+    cv.toBlob(b=>{
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(b);
+      a.download = "reaction-diffusion-"+(fld.f*1000|0)+"-"+(fld.k*1000|0)+".png";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    }, "image/png");
+  };
+  const bPause = $("bPause");
+  bPause.onclick = ()=>{ paused=!paused; bPause.classList.toggle("on",paused); bPause.textContent = paused?"继续":"暂停"; };
+
+  // 鼠标注入化学物质
+  let painting = false, erase = false;
+  function toCell(ev){
+    const r = cv.getBoundingClientRect();
+    // 画布被缩放显示,反算到模拟网格
+    let x = (ev.clientX-r.left)/r.width, y = (ev.clientY-r.top)/r.height;
+    if(zoom > 1){ x = (x-0.5)/zoom + 0.5; y = (y-0.5)/zoom + 0.5; }
+    return [Math.floor(x*N), Math.floor(y*N)];
+  }
+  function paint(ev){
+    const [cx, cy] = toCell(ev);
+    const r = Math.max(1, Math.round(N*0.022));
+    for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
+      if(dx*dx+dy*dy > r*r) continue;
+      const x = ((cx+dx)%N+N)%N, y = ((cy+dy)%N+N)%N;
+      const i = y*N+x;
+      if(erase){ fld.v[i] = 0; fld.u[i] = 1; }
+      else { fld.v[i] = 0.9; fld.u[i] = 0.2; }
+    }
+  }
+  cv.addEventListener("pointerdown", e=>{
+    painting = true; erase = (e.button===2);
+    try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    paint(e);
+  });
+  cv.addEventListener("pointermove", e=>{ if(painting) paint(e); });
+  addEventListener("pointerup", ()=>{ painting=false; erase=false; });
+  cv.addEventListener("contextmenu", e=>e.preventDefault());
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k===" "){ e.preventDefault(); bPause.click(); }
+    else if(k==="r") $("bSeed").click();
+    else if(k==="s") $("bSave").click();
+  });
+
+  applyPattern("珊瑚");
+  requestAnimationFrame(frame);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">反应扩散 · Reaction Diffusion</h2>
+    <p class="hp-lead">两种化学物质在网格上流动、反应、再扩散，长出斑点、条纹、迷宫和分裂的细胞 —— 化学能把形状写出来。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>Gray-Scott 模型</b>　两个场 U、V 满足 ∂U/∂t = Du∇²U − UV² + F(1−U)，∂V/∂t = Dv∇²V + UV² − (F+k)V。U 是被消耗的'养料'，V 是自催化'产物'：V 越多越会加速生成更多 V（UV² 这一项）。F 是补给速率、k 是清除速率。</p><p><b>图灵不稳定</b>　1952 年图灵提出：两种物质一个扩散快一个扩散慢，即使反应本身是稳定的，扩散也能让均匀状态失稳，自发分裂成斑图。这就是'反应扩散'名字的来历 —— 形状不是画上去的，是不稳定性选出来的特征波长。动物的斑纹、贝壳的纹路、沙丘的条纹都属于这一类。</p><p><b>离散化与稳定性</b>　∇² 用 9 点拉普拉斯核（含对角 0.05，中心 −1，正交 0.2）近似。显式欧拉要求 dt 足够小，否则数值爆炸；代码里一旦发现数值失稳会自动把步长收回去 —— 这是数值解 PDE 最常见的自我保护。</p><p><b>参数空间</b>　F、k 两个参数就能把系统分成不同区域：小 k 出条纹、中 k 出斑点、靠边缘出'分裂'和'游走'的孤波。Pearson (1993) 把这些区域编号成一张著名的相图，这里的状态栏就在实时报告你落在哪个区域附近。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左侧调 F（补给）、k（清除）、Du/Dv（扩散比）、步长。</li><li>在画布上点击/拖动可以播种扰动（打破均匀状态，图案才开始长）。</li><li>暂停 / 单步 / 清空；状态栏显示当前图案类型与数值稳定性。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>从 F=0.037、k=0.06 开始，把 k 慢慢往下拖：斑点 → 条纹 → 迷宫 → 分裂增殖。</li><li>把 Dv/Du 拉大（扩散更不平衡），图案会停止生长或糊成一片 —— 图灵不稳定有前提条件。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

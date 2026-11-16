@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Symbiogenesis · 生成艺术机</title>
+<style>
+  :root{ --bg:#0b0a12; --panel:rgba(24,22,36,.86); --line:rgba(255,255,255,.10);
+         --txt:#e9e6f4; --dim:#8b86a3; --acc:#ffb37a; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:radial-gradient(1200px 800px at 30% 0%,#171426 0%,#0b0a12 60%);
+        color:var(--txt); font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none;
+        display:flex; }
+  /* 左侧控制栏 */
+  #side{width:250px; flex:0 0 250px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px)}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#312b45; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.13em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.14em; margin:3px 0 16px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:16px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:40px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2e2942; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(18,16,28,.95); border:1px solid var(--line);
+         border-radius:7px; padding:5px 7px}
+  button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05); border:1px solid var(--line);
+         border-radius:7px; padding:6px 10px; cursor:pointer; transition:.12s}
+  button:hover{background:rgba(255,255,255,.15)}
+  button.prim{background:rgba(255,179,122,.20); border-color:var(--acc); color:#fff}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button:first-child{grid-column:1 / -1}
+  .sw{display:flex; align-items:center; gap:7px; margin:6px 0; cursor:pointer; color:var(--dim); font-size:11.5px}
+  .sw input{accent-color:var(--acc)}
+  #hist{display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin-top:8px}
+  #hist canvas{width:100%; aspect-ratio:1; border-radius:5px; cursor:pointer; border:1px solid var(--line); display:block}
+  #hist canvas:hover{border-color:var(--acc)}
+  /* 右侧画布 */
+  #stage{flex:1; display:flex; align-items:center; justify-content:center; padding:26px; min-width:0; position:relative}
+  #paper{background:#fff; box-shadow:0 30px 80px rgba(0,0,0,.6); max-width:100%; max-height:100%;
+         aspect-ratio:1/1; width:min(100%, calc(100vh - 52px)); border-radius:3px; overflow:hidden}
+  #paper svg{display:block; width:100%; height:100%}
+  #stat{position:absolute; left:34px; bottom:22px; color:var(--dim); font-size:11px; text-shadow:0 1px 4px #000}
+  #stat b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>生成<span>艺术机</span></h1>
+  <div class="sub">SYMBIOGENESIS</div>
+
+  <div class="grp">主题</div>
+  <select id="selStyle">
+    <option value="flora">植物生长</option>
+    <option value="contour">等高线地形</option>
+    <option value="weave">几何编织</option>
+  </select>
+
+  <div class="grp">配色</div>
+  <select id="selPal"></select>
+
+  <div class="grp">参数</div>
+  <div class="row"><label>种子</label><b id="vSeed">1</b></div>
+  <input type="range" id="sSeed" min="1" max="9999" step="1" value="1">
+  <div class="row"><label>复杂度</label><b id="vDetail">1.00</b></div>
+  <input type="range" id="sDetail" min="0.2" max="2" step="0.05" value="1">
+  <div class="row"><label>密度</label><b id="vDens">1.00</b></div>
+  <input type="range" id="sDens" min="0.2" max="2" step="0.05" value="1">
+  <div class="row"><label>对称</label><b id="vSym">1</b></div>
+  <input type="range" id="sSym" min="1" max="12" step="1" value="1">
+  <div class="row"><label>随机性</label><b id="vWild">0.50</b></div>
+  <input type="range" id="sWild" min="0" max="1" step="0.02" value="0.5">
+
+  <div class="sw"><input type="checkbox" id="cGrain" checked><label for="cGrain">纸纹颗粒</label></div>
+  <div class="sw"><input type="checkbox" id="cFrame" checked><label for="cFrame">留白边框</label></div>
+  <div class="sw"><input type="checkbox" id="cSign"><label for="cSign">签名与编号</label></div>
+
+  <div class="grp">操作</div>
+  <div class="btns">
+    <button id="bNew" class="prim">✳ 随机生成一张</button>
+    <button id="bSvg">下载 SVG</button>
+    <button id="bPng">下载 PNG</button>
+    <button id="bCopy">复制 SVG 源码</button>
+    <button id="bPrint">打印</button>
+  </div>
+
+  <div class="grp">最近生成</div>
+  <div id="hist"></div>
+</aside>
+
+<div id="stage">
+  <div id="paper"></div>
+  <div id="stat">路径 <b id="hPaths">0</b> · 顶点 <b id="hPts">0</b> · 文件 <b id="hSize">0</b> KB · 生成 <b id="hMs">0</b> ms</div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   生成艺术机 —— 程序化生成可直接打印的矢量海报
+
+   三种主题:植物生长 / 等高线地形 / 几何编织
+   输出:纯 SVG(路径 + 分组 + 可选渐变/颗粒),可无损缩放与打印
+   全部生成逻辑是纯函数,不含 DOM 依赖,便于无头验证
+   ============================================================ */
+
+// ---------- 可复现随机 ----------
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---------- 配色 ----------
+const PALETTES = {
+  "赭石 · 大地":   { bg:"#f6f1e6", ink:["#6b4f3a","#9c6b4a","#c98f5e","#3f4a3c","#8a9a6b"], accent:"#b4522f" },
+  "靛蓝 · 夜航":   { bg:"#f2f4f8", ink:["#1f3a5f","#2f5d8a","#4a90b8","#12233b","#7fb3c8"], accent:"#d98c3f" },
+  "朱砂 · 宣纸":   { bg:"#fbf6ee", ink:["#2b2b2b","#8c1c13","#b5442f","#d9a05b","#4a4a4a"], accent:"#8c1c13" },
+  "苔绿 · 雨林":   { bg:"#f1f6ef", ink:["#1f3d2b","#2f6b45","#569c6a","#8fbf7f","#0f2418"], accent:"#c9a227" },
+  "普鲁士 · 冰":   { bg:"#f4f7fa", ink:["#0f2a3f","#1d5573","#3f8fa8","#7fc2cf","#0a1c2b"], accent:"#ff7a5c" },
+  "紫罗兰 · 梦":   { bg:"#f7f4fb", ink:["#3a2a5c","#61468f","#9277c4","#c3aee0","#241a3d"], accent:"#e8a33d" },
+  "Riso 双色":     { bg:"#fdf8f2", ink:["#1a1a1a","#ff4b3e","#2a4b8d"], accent:"#ff4b3e" },
+  "纯黑 · 版画":   { bg:"#f7f7f5", ink:["#111111","#333333","#555555","#777777"], accent:"#111111" }
+};
+
+// ---------- 几何工具 ----------
+// 由点列生成平滑路径(用中点二次贝塞尔,简单且不会过冲)
+function smoothPath(pts, close){
+  if(pts.length < 2) return "";
+  let d = "M" + r1(pts[0][0]) + " " + r1(pts[0][1]);
+  for(let i=1;i<pts.length-1;i++){
+    const mx = (pts[i][0]+pts[i+1][0])/2, my = (pts[i][1]+pts[i+1][1])/2;
+    d += "Q" + r1(pts[i][0]) + " " + r1(pts[i][1]) + " " + r1(mx) + " " + r1(my);
+  }
+  const last = pts[pts.length-1];
+  d += "L" + r1(last[0]) + " " + r1(last[1]);
+  if(close) d += "Z";
+  return d;
+}
+function polyPath(pts, close){
+  if(!pts.length) return "";
+  let d = "M" + r1(pts[0][0]) + " " + r1(pts[0][1]);
+  for(let i=1;i<pts.length;i++) d += "L" + r1(pts[i][0]) + " " + r1(pts[i][1]);
+  return d + (close?"Z":"");
+}
+function r1(v){ return Math.round(v*10)/10; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+// ---------- 生成器 1:植物生长 ----------
+function genFlora(rand, P, W, H){
+  const paths = [];
+  const ink = P.ink;
+  const cx = W/2, baseY = H - P.margin;
+  const pick = () => ink[Math.floor(rand()*ink.length)];
+  // 生长必须留在画布内:超出安全区就停止分叉
+  const inBounds = (x,y) => x > W*0.05 && x < W*0.95 && y > H*0.03 && y < H*0.99;
+  const MAXDEPTH = Math.max(1, Math.min(3, Math.round(1 + P.detail)));
+
+  // 递归生长一条茎,沿途长出叶子
+  function grow(x, y, ang, len, width, depth){
+    if(depth > MAXDEPTH || len < 6) return;
+    if(!inBounds(x,y)) return;
+    const steps = 3 + Math.floor(rand()*2);
+    let px = x, py = y, a = ang;
+    const pts = [[px,py]];
+    for(let s=0;s<steps;s++){
+      a += (rand()-0.5) * 0.45 * P.wild;
+      // 接近边缘时向上收,避免长到画布外
+      if(px < W*0.16 && Math.cos(a) < 0) a = lerp(a, -Math.PI/2, 0.45);
+      if(px > W*0.84 && Math.cos(a) > 0) a = lerp(a, -Math.PI/2, 0.45);
+      px += Math.cos(a)*len/steps;
+      py += Math.sin(a)*len/steps;
+      if(!inBounds(px,py)) break;
+      pts.push([px,py]);
+      // 叶
+      if(rand() < 0.34*P.density && depth>=1){
+        const side = rand()<0.5 ? 1 : -1;
+        const lw = len*(0.35+rand()*0.4), la = a + side*(0.7+rand()*0.5);
+        paths.push(leaf(px, py, la, lw, lw*0.42, pick(), depth));
+      }
+    }
+    if(pts.length < 2) return;
+    paths.push({ d: smoothPath(pts,false), stroke: pick(), fill:"none",
+                 sw: Math.max(0.7, width) });
+    // 花
+    if(depth >= MAXDEPTH-1 && rand()<0.5){
+      blossom(px, py, len*0.28+3, pick(), P);      // 直接往 paths 里画
+    }
+    // 分叉(最多两个,且必须仍在画布内)
+    const kids = 1 + (rand()<0.45?1:0);
+    for(let k=0;k<kids;k++){
+      const spread = (0.3 + rand()*0.4) * (k===0?1:-1);
+      grow(px, py, a + spread, len*(0.55+rand()*0.18), width*0.72, depth+1);
+    }
+  }
+  function leaf(x,y,a,len,wid,col,depth){
+    // 两段对称贝塞尔组成叶片
+    const tipx = x+Math.cos(a)*len, tipy = y+Math.sin(a)*len;
+    const nx = -Math.sin(a), ny = Math.cos(a);
+    const c1x = x+Math.cos(a)*len*0.4 + nx*wid, c1y = y+Math.sin(a)*len*0.4 + ny*wid;
+    const c2x = x+Math.cos(a)*len*0.7 + nx*wid*0.5, c2y = y+Math.sin(a)*len*0.7 + ny*wid*0.5;
+    const c3x = x+Math.cos(a)*len*0.4 - nx*wid, c3y = y+Math.sin(a)*len*0.4 - ny*wid;
+    const c4x = x+Math.cos(a)*len*0.7 - nx*wid*0.5, c4y = y+Math.sin(a)*len*0.7 - ny*wid*0.5;
+    const d = "M"+r1(x)+" "+r1(y)+"C"+r1(c1x)+" "+r1(c1y)+" "+r1(c2x)+" "+r1(c2y)+" "+r1(tipx)+" "+r1(tipy)
+            + "C"+r1(c4x)+" "+r1(c4y)+" "+r1(c3x)+" "+r1(c3y)+" "+r1(x)+" "+r1(y)+"Z";
+    return { d, fill: col, stroke:"none", sw:0, op: 0.75+rand()*0.25 };
+  }
+  function blossom(x,y,r,col,P){
+    const petals = 5 + Math.floor(rand()*5);
+    for(let i=0;i<petals;i++){
+      const a = i/petals*Math.PI*2 + rand()*0.2;
+      const px = x+Math.cos(a)*r*0.62, py = y+Math.sin(a)*r*0.62;
+      const d = "M"+r1(x)+" "+r1(y)
+        + "Q"+r1(x+Math.cos(a-0.5)*r*0.8)+" "+r1(y+Math.sin(a-0.5)*r*0.8)+" "+r1(px)+" "+r1(py)
+        + "Q"+r1(x+Math.cos(a+0.5)*r*0.8)+" "+r1(y+Math.sin(a+0.5)*r*0.8)+" "+r1(x)+" "+r1(y)+"Z";
+      paths.push({ d, fill: col, stroke:"none", sw:0, op:0.6+rand()*0.35 });
+    }
+    paths.push({ d:"M"+r1(x-r*0.22)+" "+r1(y)+"a"+r1(r*0.22)+" "+r1(r*0.22)+" 0 1 0 "+r1(r*0.44)+" 0a"+r1(r*0.22)+" "+r1(r*0.22)+" 0 1 0 "+r1(-r*0.44)+" 0",
+                 fill:P.accent, stroke:"none", sw:0, op:0.9 });
+  }
+
+  const stalks = 1 + Math.floor(rand()*3 * P.density);
+  for(let s=0;s<stalks;s++){
+    const x = lerp(W*0.26, W*0.74, (s+0.5)/stalks + (rand()-0.5)*0.08);
+    const baseLen = H*(0.20 + rand()*0.12) * Math.min(1.35, P.detail);
+    grow(x, baseY, -Math.PI/2 + (rand()-0.5)*0.30, baseLen, Math.max(1, 2.6*P.detail), 0);
+  }
+  // 地面
+  paths.push({ d:"M"+r1(P.margin*0.6)+" "+r1(baseY)+"L"+r1(W-P.margin*0.6)+" "+r1(baseY),
+               stroke:P.accent, fill:"none", sw:1.1, op:0.5 });
+  return paths;
+}
+
+// ---------- 生成器 2:等高线地形 ----------
+function genContour(rand, P, W, H){
+  const paths = [];
+  const ink = P.ink;
+  // 用几个高斯"山丘"叠成高度场
+  const hills = [];
+  const n = 3 + Math.floor(rand()*5*P.density);
+  for(let i=0;i<n;i++){
+    hills.push({ x: rand()*W, y: rand()*H, r: W*(0.12+rand()*0.30), h: 0.5+rand()*1.0 });
+  }
+  const field = (x,y) => {
+    let s = 0;
+    for(const h of hills){
+      const d2 = (x-h.x)*(x-h.x) + (y-h.y)*(y-h.y);
+      s += h.h * Math.exp(-d2/(2*h.r*h.r));
+    }
+    // 一点低频起伏,避免过于规则
+    s += 0.10*Math.sin(x*0.011)*Math.cos(y*0.013) * P.wild;
+    return s;
+  };
+  const levels = Math.max(6, Math.round(16*P.detail));
+  const maxH = field(hills[0].x, hills[0].y) || 1;
+  // 对每个高度层,用 marching squares 抽等值线
+  for(let L=1; L<=levels; L++){
+    const t = (L/(levels+1)) * maxH * 0.95;
+    const segs = marchingSquares(field, t, W, H, Math.max(6, Math.round(24 - L*0.5)));
+    if(!segs.length) continue;
+    const up = L/levels;                      // 越高越深越粗
+    const col = ink[Math.min(ink.length-1, Math.round(up*(ink.length-1)))];
+    for(const chain of chainSegments(segs)){
+      if(chain.length < 3) continue;
+      paths.push({ d: smoothPath(chain,false), stroke: col, fill:"none",
+                   sw: 0.45 + up*1.5, op: 0.4 + up*0.55 });
+    }
+  }
+  // 峰顶标记
+  for(const h of hills.slice(0,2)){
+    if(rand()<0.7) paths.push({ d:"M"+r1(h.x-3)+" "+r1(h.y)+"L"+r1(h.x+3)+" "+r1(h.y)
+                                 +"M"+r1(h.x)+" "+r1(h.y-3)+"L"+r1(h.x)+" "+r1(h.y+3),
+                                stroke:P.accent, fill:"none", sw:1, op:0.9 });
+  }
+  return paths;
+}
+// 在 grid 分辨率上做 marching squares,返回线段
+function marchingSquares(field, iso, W, H, res){
+  const segs = [];
+  const nx = Math.ceil(W/res), ny = Math.ceil(H/res);
+  const corner = (i,j) => field(Math.min(i,nx)*res, Math.min(j,ny)*res);
+  for(let j=0;j<ny;j++){
+    for(let i=0;i<nx;i++){
+      const a=corner(i,j), b=corner(i+1,j), c=corner(i+1,j+1), d=corner(i,j+1);
+      const idx = (a>iso?1:0) | (b>iso?2:0) | (c>iso?4:0) | (d>iso?8:0);
+      if(idx===0 || idx===15) continue;
+      const x0=i*res, y0=j*res, x1=(i+1)*res, y1=(j+1)*res;
+      const ip = (v1,v2,p1,p2) => { const t=(iso-v1)/((v2-v1)||1e-9); return [lerp(p1[0],p2[0],t), lerp(p1[1],p2[1],t)]; };
+      const T=ip(a,b,[x0,y0],[x1,y0]), R=ip(b,c,[x1,y0],[x1,y1]),
+            B=ip(d,c,[x0,y1],[x1,y1]), Lf=ip(a,d,[x0,y0],[x0,y1]);
+      const push=(p,q)=>segs.push([p,q]);
+      switch(idx){
+        case 1: case 14: push(Lf,T); break;
+        case 2: case 13: push(T,R); break;
+        case 3: case 12: push(Lf,R); break;
+        case 4: case 11: push(R,B); break;
+        case 6: case 9:  push(T,B); break;
+        case 7: case 8:  push(Lf,B); break;
+        case 5: push(Lf,T); push(R,B); break;
+        case 10: push(T,R); push(B,Lf); break;
+      }
+    }
+  }
+  return segs;
+}
+// 把零散线段贪婪串成折线
+function chainSegments(segs){
+  const out = [];
+  const key = p => Math.round(p[0]*100)/100 + "," + Math.round(p[1]*100)/100;
+  const map = new Map();
+  segs.forEach((s,i)=>{
+    for(const p of s){
+      const k=key(p);
+      if(!map.has(k)) map.set(k,[]);
+      map.get(k).push(i);
+    }
+  });
+  const used = new Array(segs.length).fill(false);
+  for(let i=0;i<segs.length;i++){
+    if(used[i]) continue;
+    used[i]=true;
+    let chain = [segs[i][0], segs[i][1]];
+    // 向前接
+    for(let guard=0; guard<4000; guard++){
+      const k = key(chain[chain.length-1]);
+      const cand = (map.get(k)||[]).find(j=>!used[j]);
+      if(cand===undefined) break;
+      used[cand]=true;
+      const s=segs[cand];
+      chain.push(key(s[0])===k ? s[1] : s[0]);
+      if(chain.length>240) break;
+    }
+    out.push(chain);
+  }
+  return out;
+}
+
+// ---------- 生成器 3:几何编织 ----------
+function genWeave(rand, P, W, H){
+  const paths = [];
+  const ink = P.ink;
+  const cx=W/2, cy=H/2;
+  const R0 = Math.min(W,H)*0.44;
+  const rings = Math.max(3, Math.round(4*P.detail));
+  // 1) 波状同心环(最外层用强调色描边)
+  for(let i=0;i<rings;i++){
+    const r = R0*(0.30 + 0.70*(i+1)/rings);
+    const wob = 0.012 + rand()*0.05*P.wild;
+    const k1 = 2 + Math.floor(rand()*3);
+    const N = 72;
+    const pts=[];
+    for(let k=0;k<=N;k++){
+      const a = k/N*Math.PI*2;
+      const rr = r*(1 + Math.sin(a*k1 + i*1.7)*wob);
+      pts.push([cx+Math.cos(a)*rr, cy+Math.sin(a)*rr]);
+    }
+    paths.push({ d: smoothPath(pts,false),
+                 stroke: (i===rings-1) ? P.accent : ink[i%ink.length],
+                 fill:"none", sw: 0.7+rand()*1.0, op:0.55 });
+  }
+  // 2) 放射花瓣:每片都是"两端收窄"的闭合曲线,靠对称取胜,不再互相覆盖成黑块
+  const petals = Math.max(5, Math.min(18, Math.round((6 + rand()*8) * P.density)));
+  for(let p=0;p<petals;p++){
+    const a0 = p/petals*Math.PI*2 + rand()*0.06;
+    const len = R0*(0.52 + rand()*0.40);
+    const half = Math.PI/petals*(0.55 + rand()*0.55);
+    const segs = 26;
+    const half1 = [], half2 = [];
+    for(let k=0;k<=segs;k++){
+      const u = k/segs;                                  // 0..1 沿中轴
+      const r = len*u;
+      const taper = Math.sin(Math.PI*u);                 // 端点收窄为 0
+      const spread = half*taper;
+      half1.push([cx+Math.cos(a0-spread)*r, cy+Math.sin(a0-spread)*r]);
+      half2.push([cx+Math.cos(a0+spread)*r, cy+Math.sin(a0+spread)*r]);
+    }
+    const pts = half1.concat(half2.reverse());
+    const col = ink[p % ink.length];
+    paths.push({ d: smoothPath(pts,true), fill: col, stroke:"none", sw:0, op: 0.22+rand()*0.26 });
+    paths.push({ d: smoothPath(half1,false), stroke: P.accent, fill:"none", sw:0.7, op:0.35 });
+    paths.push({ d: smoothPath(half2,false), stroke: P.accent, fill:"none", sw:0.7, op:0.35 });
+  }
+  // 3) 中心几何点缀
+  const sides = 3 + Math.floor(rand()*6);
+  for(let k=0;k<2;k++){
+    const R = Math.min(W,H)*(0.05+rand()*0.09);
+    const rot = rand()*Math.PI*2;
+    const pts=[];
+    for(let i=0;i<sides;i++){
+      const a = rot + i/sides*Math.PI*2;
+      pts.push([cx+Math.cos(a)*R, cy+Math.sin(a)*R]);
+    }
+    paths.push({ d: polyPath(pts,true), stroke: P.accent, fill:"none", sw:1.2, op:0.85 });
+  }
+  return paths;
+}
+
+// ---------- 颗粒(纸纹)----------
+function genGrain(rand, W, H, count){
+  // 用极小的圆点拼出颗粒:比 feTurbulence 兼容性好,且可预算
+  let d = "";
+  for(let i=0;i<count;i++){
+    const x = rand()*W, y = rand()*H, r = 0.25 + rand()*0.7;
+    d += "M"+r1(x)+" "+r1(y)+"m"+r1(-r)+" 0a"+r1(r)+" "+r1(r)+" 0 1 0 "+r1(r*2)+" 0a"+r1(r)+" "+r1(r)+" 0 1 0 "+r1(-r*2)+" 0";
+  }
+  return d;
+}
+
+// ---------- 组装 SVG ----------
+const STYLES = { flora: genFlora, contour: genContour, weave: genWeave };
+function generate(opts){
+  const o = Object.assign({ style:"flora", palette:"赭石 · 大地", seed:1, detail:1,
+                            density:1, symmetry:1, wild:0.5, grain:true, frame:true, sign:false }, opts||{});
+  const rand = mulberry(o.seed*2654435761 % 4294967296 || 1);
+  const W = 900, H = 900;
+  const P = { detail:o.detail, density:o.density, wild:o.wild, margin:W*0.085,
+              maxDepth: Math.max(2, Math.round(3 + o.detail*2)), accent:"#000" };
+  const pal = PALETTES[o.palette] || PALETTES[Object.keys(PALETTES)[0]];
+  P.accent = pal.accent;
+  P.ink = pal.ink;
+  if(!Array.isArray(P.ink) || !P.ink.length) P.ink = ["#333333"];
+  const paths = (STYLES[o.style] || genFlora)(rand, P, W, H);
+
+  // 对称复制:把整幅画按角度重复 N 次
+  const sym = Math.max(1, Math.min(12, Math.round(o.symmetry)));
+  let body = "";
+  const drawn = [];
+  for(let s=0;s<sym;s++){
+    const ang = s/sym*360;
+    body += '<g transform="rotate(' + r1(ang) + ' ' + (W/2) + ' ' + (H/2) + ')">';
+    for(const p of paths){
+      body += pathEl(p);
+      drawn.push(p);
+    }
+    body += "</g>";
+  }
+  // 颗粒
+  let grain = "";
+  if(o.grain){
+    const gc = Math.min(1400, Math.round(500*o.detail*o.density));
+    grain = '<path d="' + genGrain(rand, W, H, gc) + '" fill="' + pal.ink[pal.ink.length-1] + '" opacity="0.055"/>';
+  }
+  // 签名
+  let sign = "";
+  if(o.sign){
+    const code = "No." + String(o.seed).padStart(4,"0") + " · " + o.style + " · " + o.palette;
+    sign = '<text x="' + r1(W-P.margin*0.6) + '" y="' + r1(H-P.margin*0.42) + '" text-anchor="end" '
+         + 'font-family="ui-monospace, monospace" font-size="11" fill="' + pal.ink[0] + '" opacity="0.55">'
+         + esc(code) + '</text>';
+  }
+  let frame = "";
+  if(o.frame){
+    const m = P.margin*0.55;
+    frame = '<rect class="poster-frame" x="'+r1(m)+'" y="'+r1(m)+'" width="'+r1(W-2*m)+'" height="'+r1(H-2*m)+'" '
+          + 'fill="none" stroke="'+pal.ink[0]+'" stroke-width="0.8" opacity="0.28"/>';
+  }
+  const svg = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">'
+    + '<title>' + esc("生成艺术 " + o.style + " seed=" + o.seed) + '</title>'
+    + '<rect width="'+W+'" height="'+H+'" fill="'+pal.bg+'"/>'
+    + '<g>' + body + '</g>'
+    + grain + frame + sign
+    + '</svg>';
+  // 统计
+  let pts = 0;
+  for(const p of paths) pts += (p.d.match(/[MLQC]/g)||[]).length;
+  return { svg, paths: paths.length*sym, pts: pts*sym, bytes: svg.length, W, H, opts:o, palette:pal };
+}
+function pathEl(p){
+  let a = '<path d="' + p.d + '"';
+  a += ' fill="' + (p.fill||"none") + '"';
+  if(p.stroke && p.stroke!=="none") a += ' stroke="' + p.stroke + '" stroke-width="' + r1(p.sw) + '" stroke-linecap="round" stroke-linejoin="round"';
+  if(p.op!==undefined && p.op<1) a += ' opacity="' + (Math.round(p.op*100)/100) + '"';
+  return a + '/>';
+}
+function esc(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ============================================================
+//  以下是浏览器界面部分(生成逻辑已在上面完成)
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("paper")){
+  const paper = document.getElementById("paper");
+  const hPaths=document.getElementById("hPaths"), hPts=document.getElementById("hPts"),
+        hSize=document.getElementById("hSize"), hMs=document.getElementById("hMs");
+  const els = {
+    style:document.getElementById("selStyle"), pal:document.getElementById("selPal"),
+    seed:document.getElementById("sSeed"), detail:document.getElementById("sDetail"),
+    dens:document.getElementById("sDens"), sym:document.getElementById("sSym"),
+    wild:document.getElementById("sWild"), grain:document.getElementById("cGrain"),
+    frame:document.getElementById("cFrame"), sign:document.getElementById("cSign")
+  };
+  Object.keys(PALETTES).forEach(k=>{
+    const o=document.createElement("option"); o.value=k; o.textContent=k; els.pal.appendChild(o);
+  });
+  els.pal.value = "赭石 · 大地";
+  const vSeed=document.getElementById("vSeed"), vDetail=document.getElementById("vDetail"),
+        vDens=document.getElementById("vDens"), vSym=document.getElementById("vSym"), vWild=document.getElementById("vWild");
+  let current = null, history = [];
+
+  function readOpts(){
+    return { style:els.style.value, palette:els.pal.value, seed:+els.seed.value,
+             detail:+els.detail.value, density:+els.dens.value, symmetry:+els.sym.value,
+             wild:+els.wild.value, grain:els.grain.checked, frame:els.frame.checked, sign:els.sign.checked };
+  }
+  function render(record){
+    const t0 = performance.now();
+    const res = generate(readOpts());
+    const ms = performance.now()-t0;
+    paper.innerHTML = res.svg.replace(/^<\?xml[^>]*\?>\n?/, "").replace(/<title>.*?<\/title>/, "");
+    hPaths.textContent = res.paths; hPts.textContent = res.pts;
+    hSize.textContent = (res.bytes/1024).toFixed(1); hMs.textContent = ms.toFixed(0);
+    current = res;
+    if(record) pushHistory(res);
+  }
+  function pushHistory(res){
+    history.unshift(res);
+    if(history.length>8) history.pop();
+    const box = document.getElementById("hist");
+    box.innerHTML = "";
+    history.forEach(r=>{
+      const c = document.createElement("canvas"); c.width=80; c.height=80;
+      const g = c.getContext("2d");
+      const img = new Image();
+      const blob = new Blob([r.svg], {type:"image/svg+xml"});
+      const url = URL.createObjectURL(blob);
+      img.onload = ()=>{ g.drawImage(img,0,0,80,80); URL.revokeObjectURL(url); };
+      img.src = url;
+      c.title = "seed " + r.opts.seed + " · " + r.opts.style;
+      c.onclick = ()=>{
+        els.style.value=r.opts.style; els.pal.value=r.opts.palette; els.seed.value=r.opts.seed;
+        els.detail.value=r.opts.detail; els.dens.value=r.opts.density; els.sym.value=r.opts.symmetry;
+        els.wild.value=r.opts.wild; els.grain.checked=r.opts.grain; els.frame.checked=r.opts.frame;
+        els.sign.checked=r.opts.sign; syncLabels(); render(false);
+      };
+      box.appendChild(c);
+    });
+  }
+  function syncLabels(){
+    vSeed.textContent=els.seed.value; vDetail.textContent=(+els.detail.value).toFixed(2);
+    vDens.textContent=(+els.dens.value).toFixed(2); vSym.textContent=els.sym.value;
+    vWild.textContent=(+els.wild.value).toFixed(2);
+  }
+  // 绑定
+  [els.style, els.pal, els.grain, els.frame, els.sign].forEach(e=>e.addEventListener("change", ()=>render(false)));
+  // 滑块拖动:一次 input 就重算一遍太贵 —— 等高线模式单次 genContour 要 0.2~0.8 秒,
+  // 拖动时事件排成队把页面整块卡死。合并成"每帧最多算一次",多余的请求直接并掉
+  let renderQueued = false;
+  function requestRender(){
+    if(renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(()=>{ renderQueued = false; render(false); });
+  }
+  [els.seed, els.detail, els.dens, els.sym, els.wild].forEach(e=>{
+    e.addEventListener("input", ()=>{ syncLabels(); requestRender(); });
+  });
+  document.getElementById("bNew").onclick = ()=>{
+    els.seed.value = 1 + Math.floor(Math.random()*9999);
+    if(Math.random()<0.35) els.style.value = pickSt(Object.keys(STYLES));
+    if(Math.random()<0.3) els.pal.value = pickSt(Object.keys(PALETTES));
+    if(Math.random()<0.25) els.sym.value = 1 + Math.floor(Math.random()*6);
+    if(Math.random()<0.25) els.detail.value = (0.7+Math.random()*1.0).toFixed(2);
+    if(Math.random()<0.25) els.dens.value = (0.7+Math.random()*1.0).toFixed(2);
+    syncLabels(); render(true);
+  };
+  function pickSt(a){ return a[Math.floor(Math.random()*a.length)]; }
+  function download(name, blob){
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  }
+  function fileName(ext){
+    return "generative-"+current.opts.style+"-"+String(current.opts.seed).padStart(4,"0")+"."+ext;
+  }
+  document.getElementById("bSvg").onclick = ()=>{
+    download(fileName("svg"), new Blob([current.svg], {type:"image/svg+xml"}));
+  };
+  document.getElementById("bPng").onclick = ()=>{
+    const scale = 2;
+    const img = new Image();
+    const svg64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(current.svg)));
+    img.onload = ()=>{
+      const c=document.createElement("canvas"); c.width=900*scale; c.height=900*scale;
+      const g=c.getContext("2d"); g.fillStyle=current.palette.bg; g.fillRect(0,0,c.width,c.height);
+      g.drawImage(img,0,0,c.width,c.height);
+      c.toBlob(b=>download(fileName("png"), b), "image/png");
+    };
+    img.onerror = ()=>alert("PNG 导出失败,请改用「下载 SVG」。");
+    img.src = svg64;
+  };
+  document.getElementById("bCopy").onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(current.svg); document.getElementById("bCopy").textContent="✓ 已复制"; }
+    catch(e){ document.getElementById("bCopy").textContent="✗ 复制失败"; }
+    setTimeout(()=>document.getElementById("bCopy").textContent="复制 SVG 源码", 1400);
+  };
+  document.getElementById("bPrint").onclick = ()=>{
+    const w = window.open("", "_blank");
+    if(!w) return;
+    w.document.write("<!doctype html><title>print</title><style>@page{margin:8mm}body{margin:0;display:flex;align-items:center;justify-content:center;height:100vh}svg{width:min(100%,180mm);height:auto}</style>" + current.svg);
+    w.document.close();
+    setTimeout(()=>{ w.focus(); w.print(); }, 320);
+  };
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k==="r") document.getElementById("bNew").click();
+    else if(k==="s") document.getElementById("bSvg").click();
+  });
+  syncLabels(); render(true);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">生成海报 · Generative Poster</h2>
+    <p class="hp-lead">同一个种子永远长出同一张画。植物、等高线、编织三种风格，把随机性、分形和排版放进一张纸上。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>伪随机与确定性</b>　计算机里的 random() 其实是确定的伪随机序列：同一个种子 → 同一串数 → 同一张图。所以'生成艺术'可以复制、可以分享种子。这里所有随机都走同一条可复现的随机流。</p><p><b>分形与 L-system</b>　植物风格用的是递归生长：每根枝条生两个子枝，长度和角度按规则缩小，递归到一定深度。递归 + 自相似就是分形，同样的规则在针叶树、蕨类、河流三角洲、肺泡上都能看到。视觉上会觉得'像活的'，其实是 5 层递归。</p><p><b>等高线 = marching squares</b>　等高线风格先生成一张噪声标量场（几个随机高斯斑叠加），再对每个阈值扫过网格：每个格子四角的数值决定它在等高线上怎么连。这就是 marching squares（行进方块）算法 —— 地形图、MRI 分割、等值面渲染都用它。</p><p><b>采样与反锯齿</b>　线条、噪点、纸张纹理都靠超采样（一个像素取多个子样本再平均）。这也是图形学里最朴素的质量提升手段：采样数翻四倍，锯齿差不多消失。</p><p><b>配色与排版</b>　调色板是从几个'和谐'的色相区间里按权重抽样（类似黄金角分布），密度控制元素数量。所谓设计感，一多半来自限制：有限的色数、统一的线宽、留白。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左侧选风格（植物 / 等高线 / 编织）、调复杂度与密度、换配色。</li><li>「换种子」生成新的一张；同一个种子可以随时复现。</li><li>「导出 SVG / PNG」把当前画面存成矢量或位图。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>把复杂度慢慢拉高：等高线从'一圈圈'变成'碎岛'，植物从'一根草'变成'一片林子'。</li><li>记下种子，刷新页面再用同一个种子 —— 图案一模一样。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>轮回游乐场</title>
+<style>
+  :root{ --bg:#08090f; --card:rgba(20,22,32,.82); --line:rgba(255,255,255,.09);
+         --txt:#e9ecf6; --dim:#7e86a0; --acc:#8be0c0; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{min-height:100%}
+  body{ background:
+          radial-gradient(1100px 700px at 15% -5%, #16203a 0%, transparent 60%),
+          radial-gradient(900px 600px at 95% 5%, #2a1a30 0%, transparent 55%),
+          #08090f;
+        color:var(--txt); font:13px/1.6 "Cascadia Mono","Consolas",ui-monospace,monospace;
+        padding:46px 32px 64px; }
+  header{max-width:1240px; margin:0 auto 30px}
+  h1{font-size:26px; letter-spacing:.02em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .lede{color:var(--dim); margin-top:9px; font-size:13px; max-width:760px; line-height:1.75}
+  .lede b{color:var(--txt); font-weight:500}
+  .bar{display:flex; gap:10px; align-items:center; margin-top:20px; flex-wrap:wrap}
+  #q{font:inherit; color:var(--txt); background:rgba(14,16,24,.9); border:1px solid var(--line);
+     border-radius:9px; padding:8px 12px; width:250px; outline:none}
+  #q:focus{border-color:var(--acc)}
+  .tag{font:inherit; font-size:11.5px; color:var(--dim); background:rgba(255,255,255,.05);
+       border:1px solid var(--line); border-radius:20px; padding:4px 12px; cursor:pointer; transition:.12s}
+  .tag:hover{background:rgba(255,255,255,.14); color:var(--txt)}
+  .tag.on{background:rgba(139,224,192,.16); border-color:var(--acc); color:#fff}
+  .stat{color:var(--dim); font-size:11.5px; margin-left:auto}
+  .stat b{color:var(--acc)}
+
+  #grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(310px, 1fr));
+        gap:18px; max-width:1240px; margin:0 auto}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+        backdrop-filter:blur(10px); transition:.16s; display:flex; flex-direction:column}
+  .card:hover{transform:translateY(-3px); border-color:rgba(139,224,192,.45);
+              box-shadow:0 18px 50px rgba(0,0,0,.6)}
+  .thumb{position:relative; width:100%; aspect-ratio:16/10; background:#05060a; overflow:hidden}
+  .thumb canvas{display:block; width:100%; height:100%}
+  .thumb .sim{position:absolute; left:9px; bottom:8px; font-size:10px; color:rgba(255,255,255,.6);
+              text-shadow:0 1px 3px #000; letter-spacing:.04em}
+  .body{padding:13px 15px 15px; display:flex; flex-direction:column; gap:8px; flex:1}
+  .ttl{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap}
+  .ttl h2{font-size:15px; font-weight:600; letter-spacing:.01em}
+  .ttl .zh{font-size:12px; color:var(--dim)}
+  .desc{color:var(--dim); font-size:12px; line-height:1.7; flex:1}
+  .meta{display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:11px}
+  .badge{background:rgba(139,224,192,.13); color:var(--acc); border:1px solid rgba(139,224,192,.3);
+         border-radius:5px; padding:2px 7px; font-size:10.5px}
+  .domain{color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:2px 7px; font-size:10.5px}
+  a.open{margin-top:2px; align-self:flex-start; text-decoration:none; color:#06120e;
+         background:var(--acc); border-radius:8px; padding:7px 14px; font-size:12px; font-weight:600}
+  a.open:hover{filter:brightness(1.1)}
+  footer{max-width:1240px; margin:34px auto 0; color:var(--dim); font-size:11.5px; line-height:1.9}
+  footer code{color:var(--acc)}
+  #empty{display:none; color:var(--dim); text-align:center; padding:60px 0; font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>轮回<span>游乐场</span></h1>
+  <div class="lede">
+    自包含的浏览器模拟,每个都是一个 HTML 文件,双击即开,无需联网、无依赖。<br>
+    每个模型都跑在真实的方程上 —— 能量、质量、概率这些量在页面里是算出来的,不是画上去的。<br>
+    每个页面右下角都有<b>「说明」</b>按钮:讲清这个游戏在玩什么、背后的数学物理、以及怎么操作。
+  </div>
+  <div class="bar">
+    <input id="q" placeholder="搜索:名字 / 领域 / 关键词…" autocomplete="off">
+    <span id="tags"></span>
+    <span class="stat">共 <b id="cnt">12</b> 个</span>
+  </div>
+</header>
+
+<div id="grid"></div>
+<div id="empty">没有匹配的条目</div>
+
+<footer>
+  缩略图不是截图 —— 它们是<b>各项目核心理念的实时迷你模拟</b>(沙堆会真的崩塌、交通流会真的堵、波包会真的干涉)。<br>
+  建议用 Chrome / Edge 打开以获得最佳显示效果。
+</footer>
+
+<script>
+"use strict";
+/* ============================================================
+   游乐场索引页
+   每个卡片 = 元信息 + 一个"实时迷你模拟"缩略图
+   缩略图用的都是各项目里经过验证的那套数学的精简版
+   ============================================================ */
+
+// ---------------- 通用小工具 ----------------
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function fitCanvas(cv){
+  const r = cv.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.max(80, Math.round(r.width*dpr));
+  cv.height = Math.max(50, Math.round(r.height*dpr));
+  return cv.getContext("2d");
+}
+function hsl(h,s,l,a){ return a===undefined ? `hsl(${h},${s}%,${l}%)` : `hsla(${h},${s}%,${l}%,${a})`; }
+
+// ============================================================
+//  十个缩略图模拟器
+//  每个都返回 { init():void, draw(t):void } —— draw 里自己推进内部状态
+// ============================================================
+const SIMS = {
+
+  // ---- 1. 粒子沙盒(熵之庭院) ----
+  sandbox: () => {
+    const W = 260, H = 160, CELL = 2;
+    const cols = W/CELL, rows = H/CELL, N = cols*rows;
+    const E = { A:0, WALL:1, SAND:2, WATER:3, OIL:4, FIRE:5 };
+    const id = new Uint8Array(N), moved = new Uint8Array(N);
+    const rnd = mulberry(4242);
+    const COL = { 1:"#8b93a5", 2:"#d6b25f", 3:"#3f7fd8", 4:"#6d5a2a", 5:"#ff9b3d" };
+    let img = null, off = null, offctx = null;
+    function set(x,y,t){ if(x<0||x>=cols||y<0||y>=rows) return; id[y*cols+x]=t; }
+    function init(g){
+      id.fill(0);
+      for(let x=0;x<cols;x++){ set(x,rows-1,E.WALL); set(x,rows-2,E.WALL); }
+      // 地形 + 水池 + 火源
+      for(let x=0;x<cols;x++){
+        const h = 6 + Math.sin(x*0.14)*2 + Math.sin(x*0.05)*3;
+        for(let y=rows-2-Math.max(0,Math.round(h)); y<rows-2; y++) set(x,y, E.SAND);
+      }
+      for(let x=8;x<56;x++) for(let y=rows-20;y<rows-2;y++) if(id[y*cols+x]===E.A) id[y*cols+x]=E.WATER;
+      for(let x=74;x<104;x++) for(let y=rows-16;y<rows-2;y++) if(id[y*cols+x]===E.A) id[y*cols+x]=E.OIL;
+      set(60, rows-4, E.FIRE);
+      img = g.createImageData(cols, rows);
+      // 网格是 130×80,画布有几百像素宽 —— putImageData 不做缩放,
+      // 直接贴上去只占左上角一小块。先写进离屏小画布,再用 drawImage 放大。
+      off = document.createElement("canvas");
+      off.width = cols; off.height = rows;
+      offctx = off.getContext("2d");
+    }
+    function step(){
+      moved.fill(0);
+      const mv = (a,b)=>{ id[b]=id[a]; id[a]=0; moved[a]=1; moved[b]=1; };
+      const sw = (a,b)=>{ const t=id[a]; id[a]=id[b]; id[b]=t; moved[a]=1; moved[b]=1; };
+      const empty = t => t===E.A || t===E.FIRE;
+      for(let y=rows-1;y>=0;y--){
+        for(let n=0;n<cols;n++){
+          const x = ((y&1)?cols-1-n:n);
+          const i = y*cols+x;
+          if(moved[i]) continue;
+          const t = id[i];
+          if(t===E.A || t===E.WALL) continue;
+          const below = y+1<rows ? i+cols : -1;
+          if(t===E.SAND){
+            if(below>=0 && empty(id[below]) && rnd()<0.9) mv(i,below);
+            else if(below>=0 && id[below]===E.WATER && rnd()<0.3) sw(i,below);
+          } else if(t===E.WATER || t===E.OIL){
+            if(below>=0 && empty(id[below])) mv(i,below);
+            else {
+              const d = rnd()<0.5?1:-1, j=i+d;
+              if((d>0&&x+1<cols)||(d<0&&x-1>=0)) if(empty(id[j])) mv(i,j);
+            }
+          } else if(t===E.FIRE){
+            if(rnd()<0.06){ id[i]=E.A; continue; }
+            for(const [dx,dy] of [[0,-1],[1,0],[-1,0],[0,1]]){
+              const xx=x+dx,yy=y+dy;
+              if(xx<0||xx>=cols||yy<0||yy>=rows) continue;
+              const j=yy*cols+xx;
+              if(id[j]===E.OIL && rnd()<0.25) id[j]=E.FIRE;
+              else if(id[j]===E.WATER && rnd()<0.1){ id[j]=E.A; }
+            }
+          }
+        }
+      }
+    }
+    return {
+      init(g){ init(g); },
+      draw(t, g){
+        for(let k=0;k<3;k++) step();
+        const d = img.data;
+        for(let i=0;i<N;i++){
+          const o = i*4, t2 = id[i];
+          if(t2===E.A){ d[o]=8; d[o+1]=12; d[o+2]=20; }
+          else { const c = COL[t2]||"#888"; d[o]=parseInt(c.substr(1,2),16); d[o+1]=parseInt(c.substr(3,2),16); d[o+2]=parseInt(c.substr(5,2),16); }
+          d[o+3]=255;
+        }
+        offctx.putImageData(img, 0, 0);
+        g.imageSmoothingEnabled = false;
+        g.drawImage(off, 0, 0, cols, rows, 0, 0, g.canvas.width, g.canvas.height);
+      }
+    };
+  },
+
+  // ---- 2. 引力沙盒 ----
+  gravity: () => {
+    const W = 260, H = 160;
+    const M = 3600, G = 2000;
+    let b = [];
+    function init(){
+      b = [{x:0,y:0,vx:0,vy:0,m:M,hue:38,r:5,huge:true}];
+      const rnd = mulberry(7);
+      for(let k=0;k<5;k++){
+        const R = 26 + k*11, a = rnd()*6.28;
+        const v = Math.sqrt(G*M/R)*(0.9+rnd()*0.12);
+        b.push({ x:Math.cos(a)*R, y:Math.sin(a)*R, vx:-Math.sin(a)*v, vy:Math.cos(a)*v,
+                 m:1+rnd()*2, hue:170+k*28, r:1.4 });
+      }
+    }
+    function step(dt){
+      // 只和中心天体作用(缩略图用简化版,视觉与真实一致)
+      for(const p of b){
+        if(p.huge) continue;
+        const dx = -p.x, dy = -p.y;
+        const d2 = dx*dx+dy*dy+9, inv = 1/(d2*Math.sqrt(d2));
+        const a = G*M*inv;
+        p.vx += a*dx*dt; p.vy += a*dy*dt;
+        p.x += p.vx*dt;   p.y += p.vy*dt;
+      }
+    }
+    return {
+      init(){ init(); },
+      draw(t, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        const S = Math.min(w,h)/150;      // 世界→像素
+        g.fillStyle = "#05060b"; g.fillRect(0,0,w,h);
+        for(let k=0;k<6;k++) step(0.0045);
+        const cx = w/2, cy = h/2;
+        for(const p of b){
+          const px = cx + p.x*S, py = cy + p.y*S;
+          const rad = (p.huge?7:2.2)*S*0.8+1.5;
+          const grd = g.createRadialGradient(px,py,0,px,py,rad*3.2);
+          grd.addColorStop(0, hsl(p.hue,100,88,0.95));
+          grd.addColorStop(0.3, hsl(p.hue,95,60,0.45));
+          grd.addColorStop(1, hsl(p.hue,90,45,0));
+          g.fillStyle = grd;
+          g.beginPath(); g.arc(px,py,rad*3.2,0,6.2832); g.fill();
+          g.fillStyle = hsl(p.hue,100,92,0.95);
+          g.beginPath(); g.arc(px,py,rad*0.45,0,6.2832); g.fill();
+        }
+      }
+    };
+  },
+
+  // ---- 3. 进化走路 ----
+  walker: () => {
+    const GRAV = -9.8, DT = 1/120, PR = 0.16, MAXV = 3.0;
+    const rnd = mulberry(20261017);
+    const POP_N = 10;
+    let pop = [], best = null, bestFit = -1e9, bestTraj = null, gen = 0, traj = null, cur = 0;
+    function genome(){
+      const n = 3 + Math.floor(rnd()*3);
+      const g = { len:[], amp:[], ph:[], f:0.6+rnd()*1.1 };
+      for(let i=0;i<n;i++) g.len.push(0.75+rnd()*0.6);
+      for(let i=0;i<n;i++){ g.amp.push((rnd()*1.7-0.85)); g.ph.push(rnd()*6.28); }
+      return g;
+    }
+    function make(g){
+      const n = g.len.length, np = n+1;
+      const px = new Float64Array(np), py = new Float64Array(np);
+      let x = 0;
+      for(let i=0;i<np;i++){ px[i]=x; py[i]=1.2; if(i<n) x += g.len[i]; }
+      // 参考点必须跟初始位置一致:ox/oy 全 0 而 px/py 非 0 时,第一步的速度等于初始位置,物理当场炸
+      return { n, np, px, py, ox: px.slice(), oy: py.slice(), rest: g.len.slice() };
+    }
+    // 跑一段并录下整条轨迹:缩略图只负责播放,不再每帧重算 5 秒模拟
+    function simulate(g, seconds, record){
+      const c = make(g), steps = Math.round(seconds/DT);
+      const out = record ? new Float64Array(steps*c.np*2) : null;
+      let com0 = 0;
+      for(let i=0;i<c.np;i++) com0 += c.px[i];
+      com0 /= c.np;
+      for(let s=0;s<steps;s++){
+        const w = 2*Math.PI*g.f;
+        // 伺服前记质心:关节是"位置级"作动器,每步能把身体凭空瞬移几厘米,
+        // 不扣回来的话进化会学成"靠甩自己往前飞"。扣回 = 内部作动不改变质心。
+        let c0x=0, c0y=0;
+        for(let i=0;i<c.np;i++){ c0x+=c.px[i]; c0y+=c.py[i]; }
+        c0x/=c.np; c0y/=c.np;
+        for(let i=1;i<c.n;i++){
+          const a1=Math.atan2(c.py[i]-c.py[i-1], c.px[i]-c.px[i-1]);
+          const a2=Math.atan2(c.py[i+1]-c.py[i], c.px[i+1]-c.px[i]);
+          let d=a2-a1; while(d>Math.PI)d-=6.2832; while(d<-Math.PI)d+=6.2832;
+          const err = g.amp[i-1]*Math.sin(w*s*DT + g.ph[i-1]) - d;
+          if(Math.abs(err)<1e-6) continue;
+          const k = Math.max(-0.12, Math.min(0.12, err*0.3));
+          const co=Math.cos(k), si=Math.sin(k);
+          for(let q=i+1;q<c.np;q++){
+            const dx=c.px[q]-c.px[i], dy=c.py[q]-c.py[i];
+            c.px[q]=c.px[i]+dx*co-dy*si; c.py[q]=c.py[i]+dx*si+dy*co;
+          }
+        }
+        let c1x=0, c1y=0;
+        for(let i=0;i<c.np;i++){ c1x+=c.px[i]; c1y+=c.py[i]; }
+        c1x/=c.np; c1y/=c.np;
+        const ldx=c1x-c0x, ldy=c1y-c0y;
+        if(ldx!==0 || ldy!==0){
+          for(let i=0;i<c.np;i++){ c.px[i]-=ldx; c.py[i]-=ldy; c.ox[i]-=ldx; c.oy[i]-=ldy; }
+        }
+        for(let i=0;i<c.np;i++){
+          let vx=(c.px[i]-c.ox[i])*0.994, vy=(c.py[i]-c.oy[i])*0.994;
+          const sp=Math.sqrt(vx*vx+vy*vy);
+          if(sp > MAXV*DT){ const k2=MAXV*DT/sp; vx*=k2; vy*=k2; }
+          c.ox[i]=c.px[i]; c.oy[i]=c.py[i];
+          c.px[i]+=vx; c.py[i]+=vy+GRAV*DT*DT;
+        }
+        for(let it=0;it<3;it++){
+          for(let i=0;i<c.n;i++){
+            const a=i, b=i+1, rest=c.rest[i];
+            const dx=c.px[b]-c.px[a], dy=c.py[b]-c.py[a];
+            const d=Math.sqrt(dx*dx+dy*dy)||1e-9;
+            const f2=(d-rest)/d*0.5;
+            c.px[a]+=dx*f2; c.py[a]+=dy*f2;
+            c.px[b]-=dx*f2; c.py[b]-=dy*f2;
+          }
+          // 落地完全非弹性:只把位置顶回去会把地面变成蹦床
+          for(let i=0;i<c.np;i++){
+            const pen = PR - c.py[i];
+            if(pen > 0){ c.py[i]+=pen; if(c.oy[i] < c.py[i]) c.oy[i]=c.py[i];
+                         c.ox[i] += (c.px[i]-c.ox[i])*0.5; }
+          }
+        }
+        if(out){ for(let i=0;i<c.np;i++){ out[(s*c.np+i)*2]=c.px[i]; out[(s*c.np+i)*2+1]=c.py[i]; } }
+      }
+      let com1 = 0;
+      for(let i=0;i<c.np;i++) com1 += c.px[i];
+      com1 /= c.np;
+      // 适应度用质心净位移:原来量的是尾节点,身体只要缩一下就能"涨分",等于没有选择压力
+      return { fit: com1 - com0, out, np:c.np, steps };
+    }
+    function mutate(base){
+      const g = { len:base.len.slice(), amp:base.amp.slice(), ph:base.ph.slice(), f:base.f };
+      for(let i=0;i<g.amp.length;i++){ g.amp[i]+=(rnd()*2-1)*0.22; g.ph[i]+=(rnd()*2-1)*0.4; }
+      g.f = Math.max(0.3, Math.min(2.4, g.f + (rnd()*2-1)*0.12));
+      for(let i=0;i<g.len.length;i++) g.len[i]=Math.max(0.6, Math.min(1.5, g.len[i]+(rnd()*2-1)*0.1));
+      return g;
+    }
+    function consider(g, r){
+      if(r.fit > bestFit){
+        bestFit = r.fit; best = g;
+        bestTraj = simulate(g, 3, true);          // 只有刷新纪录才录轨迹
+        traj = bestTraj; cur = 0;
+      }
+    }
+    // 一代 = 精英 + 锦标赛繁殖。原来是一条线上做爬山(1 个父本 + 4 个变异),
+    // 缩略图活不过几十代,永远停在"前进 -0.0 m"
+    function stepGen(){
+      gen++;
+      if(!pop.length){
+        for(let i=0;i<POP_N;i++){
+          const g = genome(); const r = simulate(g, 3, false);
+          pop.push({ g, fit:r.fit }); consider(g, r);
+        }
+        return;
+      }
+      const sorted = pop.slice().sort((a,b)=> b.fit - a.fit);
+      const next = [{ g: sorted[0].g, fit: sorted[0].fit }];   // 精英保留
+      while(next.length < POP_N){
+        const a = pop[(rnd()*pop.length)|0], b = pop[(rnd()*pop.length)|0];
+        const g = mutate(a.fit >= b.fit ? a.g : b.g);
+        const r = simulate(g, 3, false);
+        consider(g, r);
+        next.push({ g, fit: r.fit });
+      }
+      pop = next;
+      if(!traj){ traj = simulate(best || genome(), 3, true); bestTraj = traj; cur = 0; }
+    }
+    return {
+      // 缩略图只活十几秒,而从随机基因组开始要几百代才走得起来 —— 一进来就"前进 -0.0 m"看着像坏了。
+      // 先离线练 40 代(约 0.3 秒),之后边播边继续进化。
+      init(){ for(let k=0;k<40;k++) stepGen(); },
+      draw(t2, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        g.fillStyle = "#07090f"; g.fillRect(0,0,w,h);
+        if(!traj || cur >= traj.steps) stepGen();
+        const np = traj.np, s = Math.min(cur, traj.steps-1);
+        cur += 10;                                  // 每帧推进 10 个物理步 ≈ 0.083s 模拟
+        const gy = h*0.82, S = Math.min(w,h)/4.2;
+        let cx=0;
+        for(let i=0;i<np;i++) cx += traj.out[(s*np+i)*2];
+        cx /= np;
+        const ox = w*0.32 - cx*S;                   // 镜头跟住质心,生物不会走出画面
+        g.strokeStyle = "rgba(126,224,160,.35)"; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(0,gy); g.lineTo(w,gy); g.stroke();
+        g.lineCap = "round";
+        for(let i=0;i<np-1;i++){
+          const x1=ox+traj.out[(s*np+i)*2]*S,     y1=gy-traj.out[(s*np+i)*2+1]*S;
+          const x2=ox+traj.out[(s*np+i+1)*2]*S,   y2=gy-traj.out[(s*np+i+1)*2+1]*S;
+          g.strokeStyle = i===0 ? "rgba(255,196,107,.95)" : "rgba(126,224,160,.9)";
+          g.lineWidth = Math.max(3, 0.26*S);
+          g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+        }
+        // 头节点单独点出来,不然一条香肠看不出朝哪边走
+        {
+          const hx = ox+traj.out[(s*np+0)*2]*S, hy = gy-traj.out[(s*np+0)*2+1]*S;
+          g.fillStyle = "#ffc46b"; g.beginPath(); g.arc(hx, hy, Math.max(3, 0.12*S), 0, 6.2832); g.fill();
+        }
+        g.fillStyle = "rgba(255,255,255,.75)"; g.font = "10px ui-monospace, monospace";
+        g.fillText("世代 " + gen + " · 前进 " + bestFit.toFixed(1) + " m", 8, 14);
+      }
+    };
+  },
+
+  // ---- 4. 自动作曲机 ----
+  music: () => {
+    let notes = [], t0 = performance.now();
+    const rnd = mulberry(20261017);
+    const SCALE = [0,2,3,5,7,8,10];
+    function compose(){
+      notes = [];
+      const prog = [0,5,2,6];
+      for(let bar=0;bar<16;bar++){
+        const deg = prog[bar%4];
+        // 和弦声部
+        for(let v=0;v<3;v++){
+          const d = deg + v*2;
+          const midi = 48 + SCALE[((d%7)+7)%7] + 12*Math.floor(d/7);
+          notes.push({ t: bar*4, dur:2, midi, part:"pad" });
+          if(rnd()<0.6) notes.push({ t: bar*4+2, dur:2, midi, part:"pad" });
+        }
+        // 低音
+        const broot = 36 + SCALE[deg%7];
+        for(const off of [0,1.5,2.5]) notes.push({ t: bar*4+off, dur:0.9, midi:broot, part:"bass" });
+        // 旋律
+        for(let b=0;b<4;b++){
+          if(rnd()<0.25) continue;
+          const sd = deg + [0,2,4,7][Math.floor(rnd()*4)];
+          const m = 72 + SCALE[((sd%7)+7)%7];
+          notes.push({ t: bar*4+b, dur:0.9, midi:m, part:"mel", strong:true });
+        }
+      }
+    }
+    const COL = { pad:"#c9a4ff", bass:"#7ee0d0", mel:"#ffcf76" };
+    return {
+      init(){ compose(); t0 = performance.now(); },
+      draw(t, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        g.fillStyle = "#0a0810"; g.fillRect(0,0,w,h);
+        const beat = ((performance.now()-t0)/1000)*1.4 % 64;
+        const lo = 34, hi = 88;
+        const Y = m => h - (m-lo)/(hi-lo)*h;
+        // 网格
+        g.strokeStyle = "rgba(255,255,255,.06)"; g.lineWidth = 1;
+        for(let b=0;b<8;b++){
+          const x = ((b*4 - beat)/32 + 0.5)*w;
+          if(x<0||x>w) continue;
+          g.beginPath(); g.moveTo(x,0); g.lineTo(x,h); g.stroke();
+        }
+        for(const nn of notes){
+          const rel = nn.t - beat;
+          if(rel < -16 || rel > 16) continue;         // 可视窗口就是 ±16 拍(x=(rel/32+0.5)*w),裁到 32 等于放了一堆画不出来的音符
+          const x = (rel/32 + 0.5)*w;
+          const len = Math.max(2, nn.dur/32*w);
+          let a = rel < 0 ? 0.30 : 0.9;
+          g.fillStyle = COL[nn.part];
+          g.globalAlpha = a;
+          g.fillRect(x, Y(nn.midi)-2, len, nn.part==="pad" ? 4 : 2.6);
+        }
+        g.globalAlpha = 1;
+        g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 1.4;
+        g.beginPath(); g.moveTo(w/2,0); g.lineTo(w/2,h); g.stroke();
+      }
+    };
+  },
+
+  // ---- 5. 生成艺术机 ----
+  poster: () => {
+    let cache = null, cmds = null, seed = 20261017, born = -1e9;
+    function build(){
+      const rnd = mulberry(seed);
+      const W = 300, H = 188;
+      const pal = { bg:"#f6f1e6", ink:["#6b4f3a","#9c6b4a","#c98f5e","#3f4a3c","#8a9a6b"], acc:"#b4522f" };
+      const pick = () => pal.ink[Math.floor(rnd()*pal.ink.length)];
+      let d = "", paths = 0;
+      const baseY = H*0.86;
+      function leaf(x,y,a,len,wd,col){
+        const tx = x+Math.cos(a)*len, ty = y+Math.sin(a)*len;
+        const nx = -Math.sin(a), ny = Math.cos(a);
+        d += `M${x.toFixed(1)} ${y.toFixed(1)}`
+          +  `Q${(x+Math.cos(a)*len*0.4+nx*wd).toFixed(1)} ${(y+Math.sin(a)*len*0.4+ny*wd).toFixed(1)} `
+          +  `${tx.toFixed(1)} ${ty.toFixed(1)}`
+          +  `Q${(x+Math.cos(a)*len*0.4-nx*wd).toFixed(1)} ${(y+Math.sin(a)*len*0.4-ny*wd).toFixed(1)} `
+          +  `${x.toFixed(1)} ${y.toFixed(1)}Z`;
+        paths++;
+        return col;
+      }
+      const leaves = [];
+      function grow(x,y,a,len,wd,depth){
+        if(depth>2 || len<5) return;
+        const steps = 4;
+        let px=x, py=y, aa=a;
+        d += `M${px.toFixed(1)} ${py.toFixed(1)}`;
+        for(let s=0;s<steps;s++){
+          aa += (rnd()-0.5)*0.5;
+          px += Math.cos(aa)*len/steps;
+          py += Math.sin(aa)*len/steps;
+          if(px<W*0.06 || px>W*0.94 || py<H*0.05) break;
+          d += `L${px.toFixed(1)} ${py.toFixed(1)}`;
+          if(rnd()<0.45 && depth>=1) leaves.push({x:px,y:py,a:aa+(rnd()<0.5?0.9:-0.9),len:len*0.5,wd:len*0.2,col:pick()});
+        }
+        paths++;
+        for(let k=0;k<2;k++) grow(px,py,aa+(0.35+rnd()*0.4)*(k?1:-1), len*0.6, wd*0.7, depth+1);
+      }
+      for(let s=0;s<3;s++) grow(W*(0.22+s*0.28), baseY, -Math.PI/2+(rnd()-0.5)*0.3, H*(0.34+rnd()*0.16), 2.2, 0);
+      return { pal, d, leaves, baseY, paths };
+    }
+    return {
+      init(){},
+      draw(t, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        // 每 6 秒换一个种子重长一张:种子写死的话,标签上"每次重绘都是新作品"就是假的
+        if(!cache || t - born > 6){
+          seed = (seed*1103515245 + 12345) & 0x7fffffff;
+          born = t;
+          cache = build();
+          cmds = cache.d.split(/(?=[MLQ])/);      // 解析一次就够,不必每帧重新切 SVG 字符串
+        }
+        const r = cache;
+        g.setTransform(1,0,0,1,0,0);
+        g.fillStyle = r.pal.bg; g.fillRect(0,0,w,h);
+        const S = Math.min(w/300, h/188);
+        g.save();
+        g.translate((w-300*S)/2, (h-188*S)/2); g.scale(S,S);
+        // 茎
+        g.strokeStyle = r.pal.ink[3]; g.lineWidth = 1.4; g.lineCap="round";
+        g.beginPath();
+        let cx=0, cy=0;
+        for(const c of cmds){
+          const n = c.slice(1).trim().split(/[\s,]+/).map(Number);
+          const op = c[0];
+          if(op==="M"){ cx=n[0]; cy=n[1]; g.moveTo(cx,cy); }
+          else if(op==="L"){ cx=n[0]; cy=n[1]; g.lineTo(cx,cy); }
+          else if(op==="Q"){ g.quadraticCurveTo(n[0],n[1],n[2],n[3]); cx=n[2]; cy=n[3]; }
+        }
+        g.stroke();
+        // 叶(单独用颜色画)
+        for(const L of r.leaves){
+          const tx = L.x+Math.cos(L.a)*L.len, ty = L.y+Math.sin(L.a)*L.len;
+          const nx = -Math.sin(L.a), ny = Math.cos(L.a);
+          g.fillStyle = L.col; g.globalAlpha = 0.85;
+          g.beginPath();
+          g.moveTo(L.x, L.y);
+          g.quadraticCurveTo(L.x+Math.cos(L.a)*L.len*0.4+nx*L.wd, L.y+Math.sin(L.a)*L.len*0.4+ny*L.wd, tx, ty);
+          g.quadraticCurveTo(L.x+Math.cos(L.a)*L.len*0.4-nx*L.wd, L.y+Math.sin(L.a)*L.len*0.4-ny*L.wd, L.x, L.y);
+          g.fill();
+        }
+        g.globalAlpha = 1;
+        g.strokeStyle = r.pal.acc; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(12, r.baseY); g.lineTo(288, r.baseY); g.stroke();
+        g.restore();
+      }
+    };
+  },
+
+  // ---- 6. 奇异吸引子 ----
+  attractor: () => {
+    // 用 Thomas 系统(无除法,缩略图里最稳且好看)
+    const B = 0.19, h = 0.02, NP = 420, TRAIL = 90;
+    let pts, trail;
+    function init(){
+      const rnd = mulberry(99);
+      pts = [];
+      for(let k=0;k<NP;k++){
+        const a = rnd()*6.28, r = 0.4+rnd()*2.6;
+        pts.push({ x:Math.cos(a)*r, y:Math.sin(a)*r, z:(rnd()*2-1)*2.2 });
+      }
+      trail = [];
+    }
+    function deriv(p, o){
+      o[0] = Math.sin(p.y) - B*p.x;
+      o[1] = Math.sin(p.z) - B*p.y;
+      o[2] = Math.sin(p.x) - B*p.z;
+    }
+    const k1=[0,0,0], k2=[0,0,0], k3=[0,0,0], k4=[0,0,0];
+    function advance(){
+      for(const p of pts){
+        deriv(p,k1);
+        const p2={x:p.x+h/2*k1[0], y:p.y+h/2*k1[1], z:p.z+h/2*k1[2]}; deriv(p2,k2);
+        const p3={x:p.x+h/2*k2[0], y:p.y+h/2*k2[1], z:p.z+h/2*k2[2]}; deriv(p3,k3);
+        const p4={x:p.x+h*k3[0],   y:p.y+h*k3[1],   z:p.z+h*k3[2]};   deriv(p4,k4);
+        p.x += h/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
+        p.y += h/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
+        p.z += h/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2]);
+      }
+    }
+    return {
+      init(){ init(); for(let k=0;k<300;k++) advance(); },
+      draw(t, g){
+        const w = g.canvas.width, hh = g.canvas.height;
+        g.globalCompositeOperation = "source-over";
+        g.fillStyle = "rgba(4,4,10,0.22)"; g.fillRect(0,0,w,hh);
+        g.globalCompositeOperation = "lighter";
+        for(let k=0;k<3;k++) advance();
+        const S = Math.min(w,hh)/7.6, cx=w/2, cy=hh/2;
+        for(let i=0;i<NP;i++){
+          const p = pts[i];
+          // 固定视角的斜投影
+          const X = (p.x*0.92 + p.z*0.36), Y = (p.y*0.86 - p.z*0.30);
+          const hue = 190 + (i%NP)/NP*70;
+          g.fillStyle = hsl(hue, 90, 62, 0.16);
+          g.fillRect(cx+X*S, cy+Y*S, 1.6, 1.6);
+        }
+        g.globalCompositeOperation = "source-over";
+      }
+    };
+  },
+
+  // ---- 7. 量子波包 ----
+  wave: () => {
+    // 用解析叠加:两个动量不同的高斯波包 + 一个圆形势垒的相位畸变
+    const NP = 128;
+    let t = 0;
+    return {
+      init(){ t = 0; },
+      draw(t2, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        const img = g.createImageData(w, h);
+        const d = img.data;
+        t += 0.016;
+        // 两个波包相向而行,中心是双缝墙
+        const p1 = { x:-0.55 + 0.16*t, y:-0.06, kx:9, sig:0.10 };
+        const p2 = { x:-0.55 + 0.16*t, y: 0.06, kx:9, sig:0.10 };
+        const slitY = [-0.13, 0.13], slitW = 0.055;
+        for(let py=0;py<h;py++){
+          const Y = (py/h - 0.5)*2;
+          const past = (p1.x > 0.05);
+          for(let px=0;px<w;px++){
+            const X = (px/w - 0.5)*2;
+            let re = 0, im = 0;
+            for(const p of [p1,p2]){
+              const dx = X - p.x, dy = Y - p.y;
+              const gs = Math.exp(-(dx*dx+dy*dy)/(2*p.sig*p.sig));
+              // 波墙:过了墙之后按缝位置重新发射(示意性干涉)
+              let amp = gs;
+              if(past){
+                let open = 0;
+                for(const sy of slitY){
+                  const dd = Y - sy;
+                  open = Math.max(open, Math.exp(-dd*dd/(2*slitW*slitW)));
+                }
+                const dist = Math.max(0.02, p.x - 0.05);
+                const ph = 18*Math.atan2(dy, dist) + 3.0;
+                amp = gs*open;
+                re += amp*Math.cos(18*X + ph);
+                im += amp*Math.sin(18*X + ph);
+                continue;
+              }
+              re += amp*Math.cos(p.kx*X);
+              im += amp*Math.sin(p.kx*X);
+            }
+            const p = re*re + im*im;
+            let v = Math.min(1, p*2.4);
+            v = v/(1+v);
+            const c = py*0; // 占位
+            const o = (py*w+px)*4;
+            // 熔岩色表
+            const r2 = Math.min(255, v*255*1.4);
+            d[o]   = Math.min(255, v*255*1.05);
+            d[o+1] = Math.min(255, Math.pow(v,1.6)*220);
+            d[o+2] = Math.min(255, Math.pow(v,3.2)*160);
+            d[o+3] = 255;
+          }
+        }
+        g.putImageData(img, 0, 0);
+      }
+    };
+  },
+
+  // ---- 8. 反应扩散 ----
+  reaction: () => {
+    const N = 96, Du = 0.16, Dv = 0.08, F = 0.029, K = 0.057, DT = 1;
+    let u, v, u2, v2;
+    const rnd = mulberry(20261017);
+    function init(){
+      u = new Float64Array(N*N).fill(1);
+      v = new Float64Array(N*N);
+      u2 = new Float64Array(N*N); v2 = new Float64Array(N*N);
+      const c = N>>1, r = 4;
+      for(let y=c-r;y<=c+r;y++) for(let x=c-r;x<=c+r;x++){ u[y*N+x]=0.5; v[y*N+x]=0.25; }
+      for(let k=0;k<40;k++){
+        const x=(rnd()*N)|0, y=(rnd()*N)|0;
+        u[y*N+x]=0.45; v[y*N+x]=0.25;
+      }
+      for(let s=0;s<1200;s++) step();      // 先长出一个成熟图案(3000 步要同步算 3000×16384 次,首屏会明显卡一下)
+    }
+    function step(){
+      for(let y=0;y<N;y++){
+        const yUp=((y-1+N)%N)*N, yDn=((y+1)%N)*N, yM=y*N;
+        for(let x=0;x<N;x++){
+          const xL=(x-1+N)%N, xR=(x+1)%N, i=yM+x;
+          const uC=u[i], vC=v[i];
+          const lu = -uC + 0.2*(u[yM+xL]+u[yM+xR]+u[yUp+x]+u[yDn+x])
+                   + 0.05*(u[yUp+xL]+u[yUp+xR]+u[yDn+xL]+u[yDn+xR]);
+          const lv = -vC + 0.2*(v[yM+xL]+v[yM+xR]+v[yUp+x]+v[yDn+x])
+                   + 0.05*(v[yUp+xL]+v[yUp+xR]+v[yDn+xL]+v[yDn+xR]);
+          const uvv = uC*vC*vC;
+          u2[i] = uC + DT*(Du*lu - uvv + F*(1-uC));
+          v2[i] = vC + DT*(Dv*lv + uvv - (F+K)*vC);
+        }
+      }
+      let t=u; u=u2; u2=t; t=v; v=v2; v2=t;
+    }
+    const AMBER = [[4,4,10],[30,26,50],[90,90,140],[190,200,235],[255,255,250]];
+    function lut(k){
+      const x = k/255*(AMBER.length-1), b = Math.min(AMBER.length-2, Math.max(0, Math.floor(x))), f = x-b;
+      return [0,1,2].map(c=>Math.round(AMBER[b][c]*(1-f)+AMBER[b+1][c]*f));
+    }
+    return {
+      init(){ init(); },
+      draw(t, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        const img = g.createImageData(w, h);
+        const d = img.data;
+        for(let k=0;k<2;k++) step();
+        // 自适应定标
+        let mx = 1e-9;
+        for(let i=0;i<N*N;i++) if(v[i]>mx) mx=v[i];
+        const inv = 1/(mx*0.92);
+        for(let py=0;py<h;py++){
+          const yy = Math.min(N-1, (py/h*N)|0);
+          for(let px=0;px<w;px++){
+            const xx = Math.min(N-1, (px/w*N)|0);
+            let tt = v[yy*N+xx]*inv;
+            tt = tt<0?0:(tt>1?1:tt);
+            const c = lut((tt*255)|0);
+            const o = (py*w+px)*4;
+            d[o]=c[0]; d[o+1]=c[1]; d[o+2]=c[2]; d[o+3]=255;
+          }
+        }
+        g.putImageData(img,0,0);
+      }
+    };
+  },
+
+  // ---- 9. 交通流 ----
+  traffic: () => {
+    const N = 300, VMAX = 5, P = 0.28, LANES = 3;
+    let lanes = [];
+    const rnd = mulberry(20261017);
+    function init(){
+      lanes = [];
+      for(let l=0;l<LANES;l++){
+        const occ = new Uint8Array(N), v = new Uint8Array(N);
+        for(let x=0;x<N;x++) if(rnd()<0.16){ occ[x]=1; v[x]=Math.floor(rnd()*(VMAX+1)); }
+        lanes.push({ occ, v });
+      }
+    }
+    function stepLane(lane){
+      const newOcc = new Uint8Array(N), newV = new Uint8Array(N);
+      const pos = [];
+      for(let x=0;x<N;x++) if(lane.occ[x]) pos.push(x);
+      const n = pos.length;
+      if(!n){ return; }
+      for(let i=0;i<n;i++){
+        const x = pos[i], nx = pos[(i+1)%n];
+        let gap = (i===n-1) ? (nx + N - x - 1) : (nx - x - 1);
+        if(gap<0) gap=0;
+        let vi = Math.min(lane.v[x]+1, VMAX);
+        vi = Math.min(vi, gap);
+        if(rnd()<P) vi = Math.max(vi-1,0);
+        const q = (x+vi)%N;
+        newOcc[q]=1; newV[q]=vi;
+      }
+      lane.occ = newOcc; lane.v = newV;
+    }
+    return {
+      init(){ init(); },
+      draw(t, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        g.fillStyle = "#0a0b11"; g.fillRect(0,0,w,h);
+        for(let k=0;k<2;k++) for(const lane of lanes) stepLane(lane);
+        const lh = h/LANES, sx = w/N;
+        for(let l=0;l<LANES;l++){
+          const lane = lanes[l], y0 = l*lh;
+          g.fillStyle = l%2 ? "#0f111c" : "#111320";
+          g.fillRect(0,y0,w,lh);
+          g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 1;
+          g.beginPath(); g.moveTo(0,y0+lh); g.lineTo(w,y0+lh); g.stroke();
+          for(let x=0;x<N;x++){
+            if(!lane.occ[x]) continue;
+            const v = lane.v[x], tt = v/VMAX;
+            g.fillStyle = hsl(200 - tt*190, 92, 40+tt*28);
+            const cw = Math.max(2, sx*1.3), ch = lh*0.44;
+            g.fillRect(x*sx, y0+lh*0.5-ch*0.5, cw, ch);
+          }
+        }
+      }
+    };
+  },
+
+  // ---- 10. 沙堆 ----
+  sandpile: () => {
+    const N = 64, TH = 4;
+    let h, queue, inQ;
+    const rnd = mulberry(20261017);
+    function init(){
+      h = new Uint8Array(N*N);
+      queue = new Int32Array(N*N*4); inQ = new Uint8Array(N*N);
+      // 先自组织到临界态
+      for(let d=0; d<40000; d++){
+        const i = (rnd()*N*N)|0;
+        h[i]++;
+        if(h[i]>=TH) enqueue(i);
+        relax();
+      }
+    }
+    let qh=0, qt=0;
+    function enqueue(i){
+      if(inQ[i]) return;
+      inQ[i]=1; queue[qt++ % queue.length]=i;
+    }
+    function relax(){
+      // 原来这里先全网格扫一遍把所有 h>=TH 的格子入队:40000 次落沙 × 4096 格 = 1.6 亿次,
+      // 首屏直接卡住。其实每次让格子越过阈值的瞬间都已经 enqueue 过了,这一扫纯属重复。
+      let guard=0;
+      while(qh<qt && guard++ < N*N*40){
+        const i = queue[qh++ % queue.length]; inQ[i]=0;
+        if(h[i]<TH) continue;
+        const x=i%N, y=(i/N)|0, times=(h[i]/TH)|0;
+        h[i] -= TH*times;
+        if(x>0){ h[i-1]+=times; if(h[i-1]>=TH) enqueue(i-1); }
+        if(x<N-1){ h[i+1]+=times; if(h[i+1]>=TH) enqueue(i+1); }
+        if(y>0){ h[i-N]+=times; if(h[i-N]>=TH) enqueue(i-N); }
+        if(y<N-1){ h[i+N]+=times; if(h[i+N]>=TH) enqueue(i+N); }
+        if(h[i]>=TH) enqueue(i);
+      }
+    }
+    const AMBER = [[10,8,6],[70,45,20],[150,95,30],[230,165,70],[255,225,160]];
+    function lut(k){
+      const x = k/255*(AMBER.length-1), b = Math.min(AMBER.length-2, Math.max(0, Math.floor(x))), f = x-b;
+      return [0,1,2].map(c=>Math.round(AMBER[b][c]*(1-f)+AMBER[b+1][c]*f));
+    }
+    return {
+      init(){ init(); },
+      draw(t, g){
+        const w = g.canvas.width, hh = g.canvas.height;
+        // 持续撒粒,让画面一直在动
+        for(let k=0;k<120;k++){
+          const i = (rnd()*N*N)|0;
+          h[i]++;
+          if(h[i]>=TH) enqueue(i);
+        }
+        relax();
+        const img = g.createImageData(w, hh);
+        const d = img.data;
+        for(let py=0;py<hh;py++){
+          const yy = Math.min(N-1,(py/hh*N)|0);
+          for(let px=0;px<w;px++){
+            const xx = Math.min(N-1,(px/w*N)|0);
+            const c = lut(Math.round(h[yy*N+xx]/3*255));
+            const o=(py*w+px)*4;
+            d[o]=c[0]; d[o+1]=c[1]; d[o+2]=c[2]; d[o+3]=255;
+          }
+        }
+        g.putImageData(img,0,0);
+      }
+    };
+  },
+
+  // ---- 11. 自避随机游走 ----
+  saw: () => {
+    const N = 160;
+    let chains = [], rnd = mulberry(20261017);
+    const DX = [1,0,-1,0], DY = [0,1,0,-1];
+    function grow(){
+      const x=[0], y=[0], seen=new Set(["0,0"]);
+      for(let k=0;k<N;k++){
+        const cx=x[x.length-1], cy=y[y.length-1], free=[];
+        for(let d=0;d<4;d++){
+          const nx=cx+DX[d], ny=cy+DY[d];
+          if(!seen.has(nx+","+ny)) free.push(d);
+        }
+        if(!free.length) break;
+        const d = free[(rnd()*free.length)|0];
+        x.push(cx+DX[d]); y.push(cy+DY[d]); seen.add(x[x.length-1]+","+y[y.length-1]);
+      }
+      return { x, y };
+    }
+    return {
+      init(){ chains = []; for(let k=0;k<3;k++) chains.push(grow()); },
+      draw(t2, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        g.fillStyle = "#080a12"; g.fillRect(0,0,w,h);
+        // 让链缓慢"长"出来,长满后重来
+        const prog = ((performance.now()/1000)*22) % (N+40);
+        let lo=1e9, hi=-1e9, loY=1e9, hiY=-1e9;
+        for(const c of chains) for(let k=0;k<c.x.length;k++){
+          lo=Math.min(lo,c.x[k]); hi=Math.max(hi,c.x[k]);
+          loY=Math.min(loY,c.y[k]); hiY=Math.max(hiY,c.y[k]);
+        }
+        const pad=16, sx=(hi-lo)||1, sy=(hiY-loY)||1;
+        const s = Math.min((w-2*pad)/sx, (h-2*pad)/sy);
+        const ox=(w-sx*s)/2-lo*s, oy=(h-sy*s)/2-loY*s;
+        g.lineCap="round";
+        chains.forEach((c,ci)=>{
+          const upto = Math.min(c.x.length-1, Math.floor(prog));
+          if(upto < 1) return;
+          // 每段都单独 beginPath/stroke 太贵(每帧上千次状态切换),
+          // 改成按色相分段批量描:一批最多 24 段一条路径
+          g.lineWidth = Math.max(1.6, Math.min(4, s*0.3));
+          const BATCH = 24;
+          for(let k0=0;k0<upto;k0+=BATCH){
+            g.strokeStyle = hsl(165+ci*45+k0/Math.max(1,upto)*40, 80, 55);
+            g.beginPath();
+            const kEnd = Math.min(upto, k0+BATCH);
+            for(let k=k0;k<kEnd;k++){
+              g.moveTo(ox+c.x[k]*s, oy+c.y[k]*s);
+              g.lineTo(ox+c.x[k+1]*s, oy+c.y[k+1]*s);
+            }
+            g.stroke();
+          }
+          g.fillStyle = "#ff6b6b";
+          g.beginPath(); g.arc(ox+c.x[upto]*s, oy+c.y[upto]*s, 2.4, 0, 6.2832); g.fill();
+        });
+      }
+    };
+  },
+
+  // ---- 12. 朱利亚动物园 ----
+  // 主图是缓存的曼德博集合;右下角那块小图是"当前 c"的朱利亚集,
+  // c 在几只经典动物之间平滑切换,所以角落里那团形状会真的变形 ——
+  // 这就是 M 是参数空间、J 是状态空间的直观展示。
+  julia: () => {
+    const JW = 78, JH = 58, INV_LN2 = 1.4426950408889634;
+    const SPECIES = [
+      [-0.800, 0.156], [-0.400, 0.600], [0.285, 0.010],
+      [-0.702, -0.384], [-0.123, 0.745], [0.250, 0.000]
+    ];
+    let bg = null, jimg = null, lastC = null;
+    const map = { x0:-2.1, per:0 };
+
+    function escape(zr, zi, cr, ci, maxIter){
+      for(let i = 0; i < maxIter; i++){
+        const zr2 = zr*zr, zi2 = zi*zi, r2 = zr2 + zi2;
+        if(r2 > 4) return i + 1 - Math.log(0.5*Math.log(r2)) * INV_LN2;
+        zi = 2*zr*zi + ci; zr = zr2 - zi2 + cr;
+      }
+      return -1;
+    }
+    function shade(d, o, t, inner){
+      if(inner){ d[o] = 6; d[o+1] = 9; d[o+2] = 18; d[o+3] = 255; return; }
+      // 深海调色板:低亮度余弦色,避免缩略图里出现荧光绿
+      d[o]   = 24 + 92*Math.cos(6.28318*(t*0.85 + 0.00));
+      d[o+1] = 46 + 104*Math.cos(6.28318*(t*0.85 + 0.33));
+      d[o+2] = 96 + 118*Math.cos(6.28318*(t*0.85 + 0.67));
+      d[o+3] = 255;
+    }
+    function paintMandel(g, w, h){
+      const img = g.createImageData(w, h), d = img.data;
+      const per = 3.0 / w, x0 = -2.1, y0 = -per*h/2;
+      map.x0 = x0; map.per = per; map.y0 = y0;
+      for(let py = 0; py < h; py++){
+        const ci = y0 + (py + 0.5)*per;
+        for(let px = 0; px < w; px++){
+          const mu = escape(0, 0, x0 + (px + 0.5)*per, ci, 150);
+          shade(d, (py*w + px)*4, mu < 0 ? 0 : 0.5 + Math.log(1 + mu)*0.18, mu < 0);
+        }
+      }
+      return img;
+    }
+    function paintJulia(img, cr, ci){
+      const d = img.data, w = img.width, h = img.height, per = 3.0 / w, y0 = -per*h/2;
+      for(let py = 0; py < h; py++){
+        const zi0 = y0 + (py + 0.5)*per;
+        for(let px = 0; px < w; px++){
+          const mu = escape(-1.5 + (px + 0.5)*per, zi0, cr, ci, 60);
+          shade(d, (py*w + px)*4, mu < 0 ? 0 : 0.55 + Math.log(1 + mu)*0.22, mu < 0);
+        }
+      }
+    }
+    return {
+      init(g){
+        bg = paintMandel(g, g.canvas.width, g.canvas.height);
+        jimg = g.createImageData(JW, JH);
+      },
+      draw(t2, g){
+        const w = g.canvas.width, h = g.canvas.height;
+        if(!bg){ bg = paintMandel(g, w, h); jimg = g.createImageData(JW, JH); }
+        g.putImageData(bg, 0, 0);
+        const k = t2 / 4.2, i0 = ((k | 0) % SPECIES.length + SPECIES.length) % SPECIES.length;
+        const i1 = (i0 + 1) % SPECIES.length, f = k - Math.floor(k), s = f*f*(3 - 2*f);
+        const cr = SPECIES[i0][0] + (SPECIES[i1][0] - SPECIES[i0][0])*s;
+        const ci = SPECIES[i0][1] + (SPECIES[i1][1] - SPECIES[i0][1])*s;
+        if(!lastC || Math.abs(cr - lastC[0]) + Math.abs(ci - lastC[1]) > 1e-3){
+          paintJulia(jimg, cr, ci); lastC = [cr, ci];
+        }
+        const jx = w - JW - 7, jy = h - JH - 7;
+        g.putImageData(jimg, jx, jy);
+        g.strokeStyle = "rgba(255,255,255,.28)"; g.lineWidth = 1;
+        g.strokeRect(jx - 0.5, jy - 0.5, JW + 1, JH + 1);
+        // 在曼德博图上标出当前 c
+        const mx = (cr - map.x0)/map.per, my = (ci - map.y0)/map.per;
+        g.fillStyle = "#ffe08a";
+        g.beginPath(); g.arc(mx, my, 3.2, 0, 6.2832); g.fill();
+        g.strokeStyle = "rgba(255,224,138,.55)";
+        g.beginPath(); g.arc(mx, my, 7, 0, 6.2832); g.stroke();
+      }
+    };
+  }
+};
+
+// ============================================================
+//  项目清单
+// ============================================================
+const PROJECTS = [
+  { key:"sandbox", file:"Garden of Entropy.html", title:"Garden of Entropy", zh:"熵之庭院",
+    domain:"粒子物理",
+    desc:"15 种材质的 falling-sand 细胞自动机。火会烧油、酸会蚀钢、种子遇水长藤。物理引擎严格守恒粒子数。",
+    sim:"真实运行的沙粒物理" },
+  { key:"gravity", file:"Gravity Sandbox.html", title:"Gravity Sandbox", zh:"引力沙盒",
+    domain:"天体力学",
+    desc:"牛顿引力 N 体,velocity-Verlet 辛积分。拖拽打出卫星,看它们形成稳定轨道或被黑洞吞掉。",
+    sim:"真实积分的开普勒轨道" },
+  { key:"walker", file:"Evolve a Walker.html", title:"Evolve a Walker", zh:"进化出走路",
+    domain:"进化算法",
+    desc:"页内遗传算法 + 弹簧-节段物理,让一个生物自己学会走路。40 代之内从随机抽搐进化到能走 7 米。",
+    sim:"正在实时进化的步态" },
+  { key:"music", file:"Music Machine.html", title:"Music Machine", zh:"自动作曲机",
+    domain:"乐理与作曲",
+    desc:"按功能和声与声部进行规则实时作曲:无平行五度、和弦全在调内,可导出 DAW 能打开的标准 MIDI 文件。",
+    sim:"正在实时生成的乐谱" },
+  { key:"poster", file:"Generative Poster.html", title:"Generative Poster", zh:"生成艺术机",
+    domain:"程序化视觉",
+    desc:"三种生成器(植物/等高线/几何编织)输出可直接打印的矢量 SVG,坐标全部落在画布安全区内。",
+    sim:"每次重绘都是新作品" },
+  { key:"attractor", file:"Strange Attractors.html", title:"Strange Attractors", zh:"奇异吸引子",
+    domain:"混沌动力学",
+    desc:"六种混沌系统的实时点云。RK4 积分验证到四阶收敛,Lyapunov 指数与文献值对拍(Lorenz 0.902 vs 0.906)。",
+    sim:"Thomas 吸引子的真实轨道" },
+  { key:"wave", file:"Wave Packet Lab.html", title:"Wave Packet Lab", zh:"量子波包实验室",
+    domain:"量子力学",
+    desc:"分步傅里叶法求解二维薛定谔方程(自带 FFT)。概率严格守恒 1e-13,群速度与 k₀ 误差 0.011%。",
+    sim:"波包穿过双缝的干涉" },
+  { key:"reaction", file:"Reaction Diffusion.html", title:"Reaction Diffusion", zh:"反应扩散",
+    domain:"图灵形态发生",
+    desc:"Gray–Scott 模型实时长出珊瑚、迷宫、斑点。本征关系 Lψ=λψ 验证到 3.7e-12,且 λ 与扩散系数无关。",
+    sim:"真实演化中的图灵斑" },
+  { key:"traffic", file:"Traffic Flow.html", title:"Traffic Flow", zh:"交通流",
+    domain:"复杂系统",
+    desc:"Nagel–Schreckenberg 元胞自动机。随机减速 p 是拥堵的唯一来源;基本图峰值密度与理论一致。",
+    sim:"真实演化的车流与拥堵" },
+  { key:"sandpile", file:"Sandpile.html", title:"Sandpile", zh:"沙堆临界",
+    domain:"自组织临界",
+    desc:"BTW 沙堆。一粒沙可以引发扫过半个系统的雪崩;实测幂律指数 τ=1.30,与文献值 1.27 吻合。",
+    sim:"真实崩塌中的临界沙堆" },
+  { key:"saw", file:"Self-Avoiding Walk.html", title:"Self-Avoiding Walk", zh:"链与自避",
+    domain:"高分子物理",
+    desc:"自避随机游走。精确枚举与 OEIS 的整数序列 c(0..14) 完全一致;实测标度指数 ν=0.754(理论 0.75)。",
+    sim:"实时生长的自避链" },
+  { key:"julia", file:"Julia Zoo.html", title:"Julia Zoo", zh:"朱利亚动物园",
+    domain:"复动力系统",
+    desc:"曼德博集合是一张图鉴:每个 c 是一只朱利亚集动物。点击锁定参数、滚轮钻进心形与周期岛,连通与尘埃的分界就是 Douady–Hubbard 定理。",
+    sim:"曼德博与朱利亚集的真实渲染" }
+];
+
+// ============================================================
+//  渲染
+// ============================================================
+const grid = document.getElementById("grid");
+const q = document.getElementById("q");
+const tagsEl = document.getElementById("tags");
+const emptyEl = document.getElementById("empty");
+const cntEl = document.getElementById("cnt");
+
+const instances = [];
+let filterTag = null, filterText = "";
+
+function makeCard(p){
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.tag = p.domain;
+  card.dataset.text = (p.title + " " + p.zh + " " + p.domain + " " + p.desc).toLowerCase();
+
+  const thumb = document.createElement("div");
+  thumb.className = "thumb";
+  const cv = document.createElement("canvas");
+  thumb.appendChild(cv);
+  const simLabel = document.createElement("div");
+  simLabel.className = "sim";
+  simLabel.textContent = "● " + p.sim;
+  thumb.appendChild(simLabel);
+  card.appendChild(thumb);
+
+  const body = document.createElement("div");
+  body.className = "body";
+  const ttl = document.createElement("div");
+  ttl.className = "ttl";
+  const h2 = document.createElement("h2"); h2.textContent = p.title;
+  const zh = document.createElement("span"); zh.className = "zh"; zh.textContent = p.zh;
+  ttl.appendChild(h2); ttl.appendChild(zh);
+  const desc = document.createElement("div"); desc.className = "desc"; desc.textContent = p.desc;
+  const meta = document.createElement("div"); meta.className = "meta";
+  const dom = document.createElement("span"); dom.className = "domain"; dom.textContent = p.domain;
+  meta.appendChild(dom);
+  const open = document.createElement("a");
+  open.className = "open"; open.href = p.file; open.target = "_blank";
+  open.rel = "noopener"; open.textContent = "打开 →";
+  body.appendChild(ttl); body.appendChild(desc); body.appendChild(meta); body.appendChild(open);
+  card.appendChild(body);
+
+  grid.appendChild(card);
+  return { p, card, cv, instance:null, ready:false };
+}
+
+PROJECTS.forEach(p => {
+  const rec = makeCard(p);
+  instances.push(rec);
+});
+
+// 标签
+const tagSet = [...new Set(PROJECTS.map(p=>p.domain))];
+tagSet.forEach(t => {
+  const b = document.createElement("span");
+  b.className = "tag"; b.textContent = t;
+  b.onclick = () => {
+    filterTag = (filterTag === t) ? null : t;
+    [...tagsEl.children].forEach(c => c.classList.toggle("on", c.textContent === filterTag));
+    applyFilter();
+  };
+  tagsEl.appendChild(b);
+});
+q.addEventListener("input", ()=>{ filterText = q.value.trim().toLowerCase(); applyFilter(); });
+
+function applyFilter(){
+  let shown = 0;
+  for(const r of instances){
+    const okTag = !filterTag || r.p.domain === filterTag;
+    const okText = !filterText || r.card.dataset.text.includes(filterText);
+    const vis = okTag && okText;
+    r.card.style.display = vis ? "" : "none";
+    if(vis) shown++;
+  }
+  cntEl.textContent = String(shown);
+  emptyEl.style.display = shown ? "none" : "block";
+}
+
+// ---------------- 启动缩略图 ----------------
+// 每个缩略图分两次绘制:先一次性把状态推进到"有内容"(初始化),
+// 然后以较低的帧率持续演化(限制总开销,10 个画布同时跑也不卡)。
+function startThumbs(){
+  for(const r of instances){
+    const factory = SIMS[r.p.key];
+    if(!factory){ r.card.querySelector(".sim").textContent = "○ 无预览"; continue; }
+    try{
+      const g = fitCanvas(r.cv);
+      const inst = factory();
+      inst.init(g);
+      r.instance = inst; r.ctx = g;
+      r.ready = true;
+    }catch(e){
+      r.card.querySelector(".sim").textContent = "⚠ 预览失败: " + e.message;
+      r.ready = false;
+    }
+  }
+}
+
+let lastDraw = 0, cur = 0;
+function loop(now){
+  // 约 20fps,且每帧只画一部分卡片(轮转),把开销摊平
+  if(now - lastDraw > 50){
+    lastDraw = now;
+    let total = 0;
+    for(const r of instances) if(r.ready && r.card.style.display !== "none") total++;
+    if(total){
+      const perFrame = Math.min(3, total);
+      // 轮转游标必须来自外部变量。原来写的是 instances[(r.thumbIdx)%…],初始化表达式里引用自己,
+      // 第一帧就抛 TDZ ReferenceError,loop 再也没排上下一次 rAF —— 11 张缩略图全部冻结
+      for(let k=0;k<perFrame;k++){
+        const r = instances[cur++ % instances.length];
+        if(!r.ready || r.card.style.display === "none") continue;
+        try{ r.instance.draw(now/1000, r.ctx); }catch(e){ r.ready = false; }
+      }
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+// resize 时重建(尺寸变了,ImageData 也要跟着变)
+let rzTimer = null;
+window.addEventListener("resize", ()=>{
+  clearTimeout(rzTimer);
+  rzTimer = setTimeout(()=>{
+    for(const r of instances){
+      if(!r.ready) continue;
+      try{ r.ctx = fitCanvas(r.cv); r.instance.draw(performance.now()/1000, r.ctx); }catch(e){}
+    }
+  }, 250);
+});
+
+applyFilter();          // 启动就把计数/空态对齐(否则首屏永远显示硬编码的旧数字)
+startThumbs();
+// 先立刻各画一帧,保证滚动到哪都有内容
+for(const r of instances){
+  if(r.ready) { try{ r.instance.draw(performance.now()/1000, r.ctx); }catch(e){ r.ready=false; } }
+}
+requestAnimationFrame(loop);
+
+// 供无头测试检查
+window.__playground = {
+  projects: PROJECTS,
+  instances,
+  drewCount: () => instances.filter(r=>r.ready).length,
+};
+</script>
+</body>
+</html>

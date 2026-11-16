@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Gravity Sandbox · 引力沙盒</title>
+<style>
+  :root{
+    --bg:#05060b; --panel:rgba(16,20,32,.82); --line:rgba(255,255,255,.09);
+    --txt:#dfe6f5; --dim:#7c88a3; --acc:#66d9ff; --warm:#ffb45c;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{
+    background:radial-gradient(1200px 800px at 70% 20%,#0d1324 0%,#05060b 65%);
+    color:var(--txt); font:12.5px/1.5 "Cascadia Mono","Consolas",ui-monospace,monospace;
+    user-select:none;
+  }
+  #cv{position:fixed; inset:0; width:100vw; height:100vh; display:block; cursor:crosshair; touch-action:none}
+
+  /* 顶部工具栏 */
+  #bar{
+    position:fixed; left:14px; top:14px; z-index:10; display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:8px 11px;
+    backdrop-filter:blur(12px); box-shadow:0 12px 40px rgba(0,0,0,.55); max-width:calc(100vw - 28px);
+  }
+  #bar h1{font-size:13px; letter-spacing:.14em; font-weight:600; margin-right:4px}
+  #bar h1 span{color:var(--acc)}
+  .sep{width:1px; height:20px; background:var(--line)}
+  button{
+    font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+    border:1px solid var(--line); border-radius:7px; padding:4px 9px; cursor:pointer; transition:.12s;
+  }
+  button:hover{background:rgba(255,255,255,.14)}
+  button.on{background:rgba(102,217,255,.16); border-color:var(--acc); color:#fff}
+  label.sl{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:11.5px}
+  label.sl b{color:var(--txt); font-weight:500; min-width:34px; text-align:right}
+  input[type=range]{-webkit-appearance:none; width:78px; height:3px; background:#2a3344; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  .grp{display:flex; gap:4px; align-items:center}
+
+  /* 右上读数 */
+  #hud{
+    position:fixed; right:14px; top:14px; z-index:10; text-align:right; color:var(--dim); font-size:11px;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:8px 11px;
+    backdrop-filter:blur(12px); line-height:1.75;
+  }
+  #hud b{color:var(--txt); font-weight:500}
+  #hud .ok{color:#7ee0a0} #hud .warn{color:#ffcf6b} #hud .bad{color:#ff8f8f}
+
+  #tip{
+    position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:10;
+    color:var(--dim); font-size:11.5px; text-align:center; pointer-events:none;
+    background:rgba(10,13,22,.6); border:1px solid var(--line); border-radius:9px; padding:6px 14px;
+    backdrop-filter:blur(8px);
+  }
+  #tip b{color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="bar">
+  <h1>引力<span>沙盒</span></h1>
+  <div class="sep"></div>
+  <div class="grp" id="presets"></div>
+  <div class="sep"></div>
+  <label class="sl">引力 <input type="range" id="sG" min="0.15" max="3" step="0.05" value="1"><b id="vG">1.00×</b></label>
+  <label class="sl">拖尾 <input type="range" id="sTrail" min="0.002" max="0.2" step="0.002" value="0.028"><b id="vTrail">0.028</b></label>
+  <div class="sep"></div>
+  <button id="bPause">暂停</button>
+  <button id="bClear">清空</button>
+  <button id="bFollow" class="on">跟随镜头</button>
+</div>
+
+<div id="hud">
+  <div>天体 <b id="hN">0</b> · <b id="hFps">--</b> fps</div>
+  <div>能量漂移 <b id="hE" class="ok">0.00%</b></div>
+  <div>动量 <b id="hP">0.00</b></div>
+  <div>时间 <b id="hT">0.0s</b></div>
+</div>
+
+<div id="tip">
+  在空白处 <b>按住并拖拽再松手</b>:起点 = 天体的出生位置,拖拽方向 = 初速度方向,拖得越长越快 · 滚轮缩放
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   引力沙盒 —— 牛顿引力 N 体
+   · 积分器:velocity-Verlet(辛,能量长期不漂)+ 子步
+   · 软化:r² + EPS²,防止近距离奇点爆炸
+   · 碰撞:完全非弹性合并(动量守恒)
+   ============================================================ */
+
+const G_BASE = 2000;      // 引力常数基准(单位:像素/秒)
+const EPS2   = 16;        // 软化长度²
+const SUBSTEPS = 4;       // 每帧子步数
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+// 拖尾层:单独一张画布做"淡出累积",形成长曝光轨道
+let trail = document.createElement("canvas"), tctx = trail.getContext("2d");
+
+let W = 0, H = 0, DPR = 1;
+let view = { zoom: 1, cx: 0, cy: 0 };      // 视野(缩放;中心跟随主体 0)
+
+// ---------- 天体 ----------
+const CAP = 512;
+const bx = new Float64Array(CAP), by = new Float64Array(CAP);
+const bvx = new Float64Array(CAP), bvy = new Float64Array(CAP);
+const bm = new Float64Array(CAP);
+const br = new Float64Array(CAP);           // 绘制半径
+const bhue = new Float64Array(CAP);
+const balive = new Uint8Array(CAP);
+let n = 0;                                  // 使用中的槽位数(0 号是主体/恒星)
+let simT = 0;
+let spawned = false;                        // 用户刚投放天体 → 需要抵消一次整体动量
+
+function makeBody(x, y, vx, vy, m, hue, r){
+  if(n >= CAP) return -1;
+  const i = n++;
+  bx[i]=x; by[i]=y; bvx[i]=vx; bvy[i]=vy; bm[i]=m;
+  bhue[i]=hue; br[i]= r!==undefined ? r : radiusOf(m);
+  balive[i]=1;
+  spawned = true;
+  return i;
+}
+function radiusOf(m){ return Math.max(1.6, Math.min(11, 1.7*Math.pow(m,1/3))); }
+function clearAll(){
+  // 整张表都要清干净,否则已死天体的残留质量/半径会在碰撞或统计里"复活"
+  for(let i=0;i<CAP;i++){ balive[i]=0; bm[i]=0; br[i]=0; bx[i]=0; by[i]=0; bvx[i]=0; bvy[i]=0; }
+  n = 0; simT = 0; lastEnergy = null; spawned = false;
+}
+function aliveCount(){ let c=0; for(let i=0;i<n;i++) if(balive[i]) c++; return c; }
+
+// 大质量天体(恒星)永远是索引 0:视为静止的参考系原点
+function isStar(i){ return i===0; }
+
+// ---------- 物理 ----------
+let Gscale = 1;                             // 用户可调的引力倍率
+function G(){ return G_BASE * Gscale; }
+
+// 累加所有天体的加速度
+function accel(ax, ay){
+  for(let i=0;i<n;i++){ ax[i]=0; ay[i]=0; }
+  const Gc = G();
+  for(let i=0;i<n;i++){
+    if(!balive[i]) continue;
+    const xi=bx[i], yi=by[i], mi=bm[i];
+    for(let j=i+1;j<n;j++){
+      if(!balive[j]) continue;
+      const dx = bx[j]-xi, dy = by[j]-yi;
+      const d2 = dx*dx + dy*dy + EPS2;
+      const inv = 1/(d2*Math.sqrt(d2));
+      const s = Gc*inv;
+      // a_i += G*m_j*dr/|dr|³ ; a_j -= G*m_i*dr/|dr|³
+      const fi = s*bm[j], fj = s*mi;
+      ax[i]+=fi*dx; ay[i]+=fi*dy;
+      ax[j]-=fj*dx; ay[j]-=fj*dy;
+    }
+  }
+}
+
+// 一发 velocity-Verlet 子步
+function substep(dt){
+  const ax=new Float64Array(CAP), ay=new Float64Array(CAP);
+  accel(ax, ay);
+  const h = dt*0.5;
+  for(let i=0;i<n;i++){
+    if(!balive[i]) continue;
+    bvx[i] += ax[i]*h; bvy[i] += ay[i]*h;
+    bx[i]  += bvx[i]*dt; by[i] += bvy[i]*dt;
+  }
+  accel(ax, ay);
+  for(let i=0;i<n;i++){
+    if(!balive[i]) continue;
+    bvx[i] += ax[i]*h; bvy[i] += ay[i]*h;
+  }
+}
+
+function stepFrame(dtFrame){
+  if(dtFrame > 0.05) dtFrame = 0.05;              // 防止切标签页后炸掉
+  const dt = dtFrame / SUBSTEPS;
+  for(let s=0;s<SUBSTEPS;s++) substep(dt);
+  simT += dtFrame;
+  collide();
+  prune();
+  // 只在"刚投放新天体"时抵消一次整体动量,否则会持续抽走动能、让轨道衰减
+  if(spawned){ removeMomentum(); spawned = false; }
+}
+
+// 完全非弹性碰撞:动量守恒地并成一颗
+function collide(){
+  for(let i=0;i<n;i++){
+    if(!balive[i]) continue;
+    let merged = true;
+    while(merged){
+      merged = false;
+      for(let j=i+1;j<n;j++){
+        if(!balive[j]) continue;
+        const dx = bx[j]-bx[i], dy = by[j]-by[i];
+        const rr = br[i]+br[j];
+        if(dx*dx+dy*dy > rr*rr) continue;
+        // 谁大谁留(质量合并)
+        let a=i, b=j;
+        if(bm[b] > bm[a]){ a=j; b=i; }
+        const mt = bm[a]+bm[b];
+        const px = bm[a]*bvx[a]+bm[b]*bvx[b], py = bm[a]*bvy[a]+bm[b]*bvy[b];
+        bx[a] = (bm[a]*bx[a]+bm[b]*bx[b])/mt;
+        by[a] = (bm[a]*by[a]+bm[b]*by[b])/mt;
+        bvx[a] = px/mt; bvy[a] = py/mt;
+        bm[a] = mt; br[a] = radiusOf(mt);
+        balive[b] = 0;
+        merged = true;
+        break;                       // i 可能已经不是存活体,重新评估
+      }
+      if(!balive[i]) break;
+    }
+  }
+}
+// 掉出视野太远就回收
+function prune(){
+  const R = 6000/view.zoom;
+  for(let i=1;i<n;i++){
+    if(!balive[i]) continue;
+    const dx=bx[i]-view.cx, dy=by[i]-view.cy;
+    if(dx*dx+dy*dy > R*R) balive[i]=0;
+  }
+}
+// 把总动量归零(把所有天体速度减去质心速度)。质心速度是不变量,所以这一步只做一次、不抽走轨道动能
+function removeMomentum(){
+  let px=0, py=0, mt=0;
+  for(let i=0;i<n;i++) if(balive[i]){ px+=bm[i]*bvx[i]; py+=bm[i]*bvy[i]; mt+=bm[i]; }
+  if(mt<=0) return;
+  const vx = px/mt, vy = py/mt;
+  for(let i=0;i<n;i++) if(balive[i]){ bvx[i]-=vx; bvy[i]-=vy; }
+}
+
+// 总能量 = 动能 + 引力势能(诊断用)
+function totalEnergy(){
+  const Gc = G();
+  let E = 0;
+  for(let i=0;i<n;i++){
+    if(!balive[i]) continue;
+    E += 0.5*bm[i]*(bvx[i]*bvx[i]+bvy[i]*bvy[i]);
+    for(let j=i+1;j<n;j++){
+      if(!balive[j]) continue;
+      const dx=bx[j]-bx[i], dy=by[j]-by[i];
+      E -= Gc*bm[i]*bm[j]/Math.sqrt(dx*dx+dy*dy+EPS2);
+    }
+  }
+  return E;
+}
+function totalMomentum(){
+  let px=0, py=0;
+  for(let i=0;i<n;i++) if(balive[i]){ px+=bm[i]*bvx[i]; py+=bm[i]*bvy[i]; }
+  return [px,py];
+}
+
+// ---------- 预设场景 ----------
+const PRESETS = {
+  "混沌三体"(){                       // 8 字形家族的近亲:三体互相缠斗
+    clearAll();
+    makeBody(0, 0, 0, 0, 3600, 38, 15);
+    const R = 260, v = Math.sqrt(G()*3600/(R*1.4));
+    makeBody(R, 0, 0, v*0.95, 900, 195, radiusOf(900));
+    makeBody(-R*0.5, R*0.86, -v*1.1, -v*0.55, 900, 285, radiusOf(900));
+    makeBody(-R*0.5, -R*0.86, v*1.1, -v*0.55, 900, 330, radiusOf(900));
+  },
+  "开普勒"(){                        // 同心椭圆,不同偏心率
+    clearAll();
+    makeBody(0, 0, 0, 0, 3600, 38, 15);
+    // 同一偏心率 e=0.22、同一长轴方向的嵌套椭圆 —— 这样轨道互不相交(不会互相撞掉),
+    // 之前 0.82+0.05k 倍圆轨速度在外圈会 >1 变成双曲轨道直接飞走
+    const e = 0.22;
+    for(let k=0;k<5;k++){
+      const a = 110 + k*62;                        // 半长轴
+      const r0 = a*(1-e);                          // 近日点距离
+      const v0 = Math.sqrt(G()*3600*(1+e)/(a*(1-e)));  // 近日点速度
+      const hue = [190,205,220,265,300][k];
+      // 行星要轻:6..22 吨在 30px 的近距交会上,彼此的引力能达到恒星引力的 40%,
+      // 一会儿就把轨道抽成乱七八糟的大椭圆(实测 5 颗 30 秒内并成 2 颗)
+      makeBody(r0, 0, 0, v0, 0.6 + k*0.3, hue, radiusOf(0.6 + k*0.3));
+    }
+  },
+  "双星"(){                          // 两颗恒星互绕,行星在外围
+    clearAll();
+    // 等质量双星,间距 d = 2R。圆轨道速度:G m²/d² = m v²/(d/2) → v = √(G m/(2d)) = √(G m/(4R))
+    const m=1800, R=60, v=Math.sqrt(G()*m/(4*R));
+    makeBody(-R, 0, 0, -v, m, 40, 11);
+    makeBody( R, 0, 0,  v, m, 20, 11);
+    for(let k=0;k<26;k++){
+      const RR = 260 + Math.random()*180, a = Math.random()*Math.PI*2;
+      const vv = Math.sqrt(G()*(2*m)/RR)*(1+(Math.random()-0.5)*0.01);   // 尽量圆轨,偏心轨道会互穿撞成一团
+      makeBody(Math.cos(a)*RR, Math.sin(a)*RR, -Math.sin(a)*vv, Math.cos(a)*vv, 1+Math.random()*2, 170+Math.random()*140, 2);
+    }
+  },
+  "特洛伊"(){                        // 一颗大行星 + 它前后 60° 的小行星群
+    clearAll();
+    makeBody(0, 0, 0, 0, 3600, 38, 15);
+    const R = 300, v = Math.sqrt(G()*3600/R);
+    // 特洛伊群要稳定,行星质量必须低于 Routh 判据 μ = m/(M+m) ≤ 0.0385。
+    // 原来 m=260 → μ=0.067(小行星十几圈就被甩出去);现在取 μ≈0.02,
+    // 稳定区更宽 —— 靠近 Routh 极限时蜂群会一边天平动一边挤成一团
+    makeBody(R, 0, 0, v, 75, 210, radiusOf(75));
+    for(const off of [Math.PI/3, -Math.PI/3]){
+      // 小行星要沿轨道铺开:原来 16 颗挤在 ±0.11 rad 的弧里(间距只有 4px,半径和 3.6px)
+      // → 一开场就互相重叠,完全非弹性合并又把半径越并越大,1 秒内 32 颗只剩 6 颗
+      for(let k=0;k<6;k++){
+        const a = off + (k-2.5)*0.16 + (Math.random()-0.5)*0.03;   // 铺开 ±0.48 rad,间距 ≈ 48px
+        const rr = R*(1+(Math.random()-0.5)*0.06);
+        const vv = Math.sqrt(G()*(3600+75)/rr)*(1+(Math.random()-0.5)*0.005);
+        makeBody(Math.cos(a)*rr, Math.sin(a)*rr, -Math.sin(a)*vv, Math.cos(a)*vv, 0.05+Math.random()*0.1, 150+Math.random()*120, 1.0);
+      }
+    }
+  },
+  "星环"(){                          // 一圈同向公转的碎屑 → 稳定的光环
+    clearAll();
+    makeBody(0, 0, 0, 0, 3600, 38, 15);
+    // 均匀撒在 (半径 × 方位角) 的网格上。随机撒点会有几对一开局就重叠,而合并后半径 =
+    // radiusOf(合并质量) 会变大,于是连锁合并:原来 131 颗 8 秒就剩 67 颗
+    const RINGS = 8, PER = 16;
+    for(let ri=0; ri<RINGS; ri++){
+      const R = 150 + (ri+0.5)*(150/RINGS);
+      const v = Math.sqrt(G()*3600/R);
+      for(let p=0; p<PER; p++){
+        const a = (p + (ri%2)*0.5)/PER*Math.PI*2;
+        makeBody(Math.cos(a)*R, Math.sin(a)*R, -Math.sin(a)*v, Math.cos(a)*v, 0.02+Math.random()*0.05, 180+Math.random()*80, 1.6);
+      }
+    }
+  },
+  "碰撞合并"(){                      // 两团反向飞行 → 撞在一起并合并
+    clearAll();
+    makeBody(0, 0, 0, 0, 900, 38, 12);
+    for(let k=0;k<10;k++){
+      const y=(Math.random()-0.5)*160, x=-520-Math.random()*40;
+      makeBody(x, y, 150+Math.random()*20, 0, 3, 200, radiusOf(3));
+    }
+    for(let k=0;k<10;k++){
+      const y=(Math.random()-0.5)*160, x=520+Math.random()*40;
+      makeBody(x, y, -150-Math.random()*20, 0, 3, 330, radiusOf(3));
+    }
+  }
+};
+
+function loadPreset(name){
+  const f = PRESETS[name];
+  if(!f) return;
+  f();
+  view.cx = 0; view.cy = 0; view.zoom = 1;
+  panX = 0; panY = 0;
+  resetTrail();
+  lastEnergy = totalEnergy();
+}
+
+// ---------- 渲染 ----------
+function sizeUp(){
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  W = Math.floor(window.innerWidth*DPR); H = Math.floor(window.innerHeight*DPR);
+  cv.width = W; cv.height = H;
+  trail.width = W; trail.height = H;
+  resetTrail();
+}
+function resetTrail(){
+  tctx.setTransform(1,0,0,1,0,0);
+  tctx.globalCompositeOperation = "source-over";
+  tctx.fillStyle = "#05060b";
+  tctx.fillRect(0,0,W,H);
+}
+// 世界坐标 → 屏幕像素(画布像素);镜头可以跟随主体 0,也可以被滚轮平移出去
+let zx=1, zy=1, oxc=0, oyc=0;
+let followCam = true, panX = 0, panY = 0;   // panX/panY = 相对恒星的手动平移量
+function focusXY(){
+  return [balive[0] ? bx[0] : 0, balive[0] ? by[0] : 0];
+}
+function updateProj(){
+  zx = DPR*view.zoom; zy = zx;
+  // 原来这里每帧无条件把 view.cx/cy 钉在恒星上,于是滚轮算好的平移下一帧就被清掉,
+  // 缩放永远围绕恒星 —— 现在跟随只作为"基准位置",手动平移量另外累加
+  if(followCam){
+    const [fx, fy] = focusXY();
+    view.cx = fx + panX; view.cy = fy + panY;
+  }
+  oxc = W/2 - view.cx*zx;
+  oyc = H/2 - view.cy*zy;
+}
+const SX = x => oxc + x*zx;
+const SY = y => oyc + y*zy;
+
+let trailsOn = true;
+function render(dt){
+  updateProj();
+  // 拖尾淡出
+  if(trailsOn){
+    tctx.setTransform(1,0,0,1,0,0);
+    tctx.globalCompositeOperation = "source-over";
+    tctx.fillStyle = "rgba(5,6,11," + fadeRate + ")";
+    tctx.fillRect(0,0,W,H);
+  } else resetTrail();
+
+  // 把天体画进拖尾层(additive 发光)
+  tctx.setTransform(1,0,0,1,0,0);
+  tctx.globalCompositeOperation = "lighter";
+  for(let i=0;i<n;i++){
+    if(!balive[i]) continue;
+    const x = SX(bx[i]), y = SY(by[i]);
+    const isS = isStar(i);
+    const r = Math.max(1.1, br[i]*zx);
+    const g = tctx.createRadialGradient(x,y,0,x,y, r*(isS?7:5));
+    const hue = bhue[i];
+    g.addColorStop(0,   "hsla("+hue+",100%,88%,"+(isS?0.95:0.85)+")");
+    g.addColorStop(0.18,"hsla("+hue+",95%,62%,"+(isS?0.6:0.5)+")");
+    g.addColorStop(0.55,"hsla("+hue+",90%,45%,0.14)");
+    g.addColorStop(1,   "hsla("+hue+",90%,40%,0)");
+    tctx.fillStyle = g;
+    tctx.beginPath(); tctx.arc(x,y,r*(isS?7:5),0,6.2832); tctx.fill();
+    // 实心核心
+    tctx.fillStyle = "hsla("+hue+",100%,92%,0.9)";
+    tctx.beginPath(); tctx.arc(x,y,Math.max(0.8,r*(isS?0.5:0.45)),0,6.2832); tctx.fill();
+  }
+  tctx.globalCompositeOperation = "source-over";
+
+  // 主画布:拖尾层 + 交互预览
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#05060b";
+  ctx.fillRect(0,0,W,H);
+  ctx.drawImage(trail,0,0);
+
+  // 拖拽预览:起点、终点、速度箭头、预测抛物线
+  if(drag.active){
+    const x0=SX(drag.x0), y0=SY(drag.y0), x1=SX(drag.x), y1=SY(drag.y);
+    ctx.save();
+    ctx.strokeStyle="rgba(102,217,255,.85)"; ctx.lineWidth=1.5*DPR;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    // 预测轨迹(用当前引力积分一小段,看它会怎么飞)
+    const vx = (drag.x-drag.x0)*VEL_K, vy = (drag.y-drag.y0)*VEL_K;
+    let px=drag.x0, py=drag.y0, pvx=vx, pvy=vy, h=1/120, steps=Math.min(900, Math.round(2.2/h));
+    ctx.strokeStyle="rgba(102,217,255,.35)"; ctx.lineWidth=1*DPR;
+    ctx.beginPath(); ctx.moveTo(SX(px),SY(py));
+    for(let s=0;s<steps;s++){
+      const dx0=bx[0]-px, dy0=by[0]-py;
+      const d2=dx0*dx0+dy0*dy0+EPS2, inv=1/(d2*Math.sqrt(d2));
+      const ax=G()*bm[0]*inv*dx0, ay=G()*bm[0]*inv*dy0;
+      pvx+=ax*h; pvy+=ay*h; px+=pvx*h; py+=pvy*h;
+      if(s%3===0) ctx.lineTo(SX(px),SY(py));
+    }
+    ctx.stroke();
+    // 起点标记
+    ctx.fillStyle="rgba(255,255,255,.9)";
+    ctx.beginPath(); ctx.arc(x0,y0,3*DPR,0,6.2832); ctx.fill();
+    ctx.restore();
+  }
+  // 视野中心十字(轻微)
+  ctx.strokeStyle="rgba(255,255,255,.06)"; ctx.lineWidth=1*DPR;
+  ctx.beginPath(); ctx.moveTo(W/2-9*DPR,H/2); ctx.lineTo(W/2+9*DPR,H/2);
+  ctx.moveTo(W/2,H/2-9*DPR); ctx.lineTo(W/2,H/2+9*DPR); ctx.stroke();
+}
+
+// ---------- 主循环 ----------
+let running = true, fadeRate = 0.028, lastEnergy = null;
+let fpsAcc=0, fpsN=0, last = performance.now();
+function loop(now){
+  let dt = (now-last)/1000; last = now;
+  if(dt > 0.05) dt = 0.05;
+  fpsAcc += dt; fpsN++;
+  if(dt > 0 && running){
+    stepFrame(dt);
+    // 能量漂移诊断
+    const E = totalEnergy();
+    if(lastEnergy === null || Math.abs(lastEnergy) < 1e-9) lastEnergy = E;
+    const drift = Math.abs((E - lastEnergy)/lastEnergy);
+    energyEl.textContent = (drift*100).toFixed(2) + "%";
+    energyEl.className = drift < 0.002 ? "ok" : (drift < 0.02 ? "warn" : "bad");
+    const [px,py] = totalMomentum();
+    momEl.textContent = Math.hypot(px,py).toFixed(1);
+  }
+  render(dt);
+  if(fpsN >= 20){ fpsEl.textContent = (fpsN/fpsAcc).toFixed(0); fpsAcc=0; fpsN=0; }
+  nEl.textContent = aliveCount();
+  tEl.textContent = simT.toFixed(1) + "s";
+  requestAnimationFrame(loop);
+}
+
+// ---------- 交互 ----------
+const VEL_K = 0.8;                 // 拖拽像素 → 速度(px/s)
+const drag = { active:false, x0:0, y0:0, x:0, y:0 };
+function toWorld(ev){
+  const r = cv.getBoundingClientRect();
+  const sx = (ev.clientX - r.left)*DPR, sy = (ev.clientY - r.top)*DPR;
+  return [ (sx-oxc)/zx, (sy-oyc)/zy ];
+}
+cv.addEventListener("pointerdown", ev=>{
+  const [x,y] = toWorld(ev);
+  drag.active = true; drag.x0=x; drag.y0=y; drag.x=x; drag.y=y;
+  try{ cv.setPointerCapture(ev.pointerId); }catch(_){}
+});
+cv.addEventListener("pointermove", ev=>{
+  if(!drag.active) return;
+  const [x,y] = toWorld(ev); drag.x=x; drag.y=y;
+});
+addEventListener("pointerup", ev=>{
+  if(!drag.active) return;
+  drag.active = false;
+  const vx = (drag.x-drag.x0)*VEL_K, vy = (drag.y-drag.y0)*VEL_K;
+  const m = 1.5 + Math.random()*1.5;
+  makeBody(drag.x0, drag.y0, vx, vy, m, (Math.random()*360)|0, radiusOf(m));
+});
+cv.addEventListener("contextmenu", e=>e.preventDefault());
+cv.addEventListener("wheel", e=>{
+  e.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const mx = (e.clientX-r.left)*DPR, my = (e.clientY-r.top)*DPR;
+  const wx = (mx-oxc)/zx, wy = (my-oyc)/zy;         // 鼠标下的世界点(缩放前)
+  const k = e.deltaY < 0 ? 1.12 : 1/1.12;
+  view.zoom = Math.max(0.12, Math.min(6, view.zoom*k));
+  updateProj();
+  // 保持鼠标下的点不动
+  view.cx = wx + (W/2 - mx)/zx;
+  view.cy = wy + (H/2 - my)/zy;
+  // 跟随模式下把这段平移记成相对恒星的偏移 —— 否则下一帧 updateProj 会把它覆盖回恒星位置
+  if(followCam){ const [fx, fy] = focusXY(); panX = view.cx - fx; panY = view.cy - fy; }
+  resetTrail();
+}, {passive:false});
+
+// ---------- UI ----------
+const nEl=document.getElementById("hN"), fpsEl=document.getElementById("hFps"),
+      energyEl=document.getElementById("hE"), momEl=document.getElementById("hP"), tEl=document.getElementById("hT");
+const sG=document.getElementById("sG"), vG=document.getElementById("vG"),
+      sTrail=document.getElementById("sTrail"), vTrail=document.getElementById("vTrail");
+sG.oninput = ()=>{ Gscale = +sG.value; vG.textContent = Gscale.toFixed(2)+"×"; lastEnergy = totalEnergy(); };
+sTrail.oninput = ()=>{ fadeRate = +sTrail.value; vTrail.textContent = fadeRate.toFixed(3); };
+document.getElementById("bPause").onclick = function(){ running = !running; this.textContent = running?"暂停":"继续"; this.classList.toggle("on", !running); };
+document.getElementById("bClear").onclick = ()=>{ clearAll(); resetTrail(); energyEl.textContent="0.00%"; };
+// 跟随镜头:关掉之后舞台就不再被拽回恒星,滚轮铺开的视野/平移会留住
+const bFollow = document.getElementById("bFollow");
+bFollow.onclick = ()=>{
+  followCam = !followCam;
+  bFollow.classList.toggle("on", followCam);
+  if(followCam){ panX = 0; panY = 0; updateProj(); resetTrail(); }
+};
+
+const presetBox = document.getElementById("presets");
+let activeBtn = null;
+Object.keys(PRESETS).forEach(name=>{
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.onclick = ()=>{ loadPreset(name); markActive(b); };
+  presetBox.appendChild(b);
+});
+function markActive(b){
+  if(activeBtn) activeBtn.classList.remove("on");
+  activeBtn = b; b.classList.add("on");
+}
+addEventListener("keydown", e=>{
+  const k=(e.key||"").toLowerCase();
+  if(k===" "){ e.preventDefault(); document.getElementById("bPause").click(); }
+  else if(k==="c") document.getElementById("bClear").click();
+  else if(k>="1"&&k<="6"){ const b=presetBox.children[+k-1]; if(b) b.click(); }
+});
+
+// ---------- 启动 ----------
+sizeUp();
+loadPreset("混沌三体");
+markActive(presetBox.children[Object.keys(PRESETS).indexOf("混沌三体")]);  // 高亮要和真正加载的预设一致
+requestAnimationFrame(loop);
+addEventListener("resize", ()=>{ sizeUp(); });
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">引力沙盒 · Gravity Sandbox</h2>
+    <p class="hp-lead">在平面上放一堆互相吸引的天体，看轨道、潮汐、三体混沌和洛希瓣怎么自己长出来。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>牛顿万有引力</b>　每对天体之间有 F = G m1 m2 / r² 的吸引力。代码里对每个天体累加所有别人的加速度 a = Σ G m_j (r_j−r_i)/|r_j−r_i|³，再用 velocity-Verlet 积分位置。距离平方里的 ε²（软化）避免两个天体贴太近时加速度炸成无穷。</p><p><b>为什么用 velocity-Verlet</b>　轨道运动是长时间的周期性演化，用低阶欧拉法误差会累积成'螺旋掉进去'。Verlet 是辛积分器（symplectic）：它不精确守恒能量，但误差是有界的振荡，不会单调漂移 —— 这也是它能连跑几分钟轨道还稳的原因。</p><p><b>开普勒与椭圆</b>　两个天体只有引力时的解是椭圆：r = a(1−e²)/(1+e cosθ)，近拱点越快（角动量守恒）。预设里五条嵌套椭圆就是同一焦点的 a 递增、e 相同的轨道，只要质量很小就能长期稳定。</p><p><b>拉格朗日点与特洛伊群</b>　两天体系统里 L4/L5 两个点与两大天体构成等边三角形，小行星放在那里可以长期共绕。能否稳定取决于质量比：只有当 m_小/m_大 &lt; 0.0385（Routh 判据）时才稳。把行星调太重，特洛伊群会一个个散掉 —— 你可以亲手验证这条判据。</p><p><b>混沌三体</b>　三个质量相当的天体互相牵扯，轨道对初始条件极端敏感（李雅普诺夫指数为正），几乎必然在几十个周期内发生近距交会并被甩出去。这里用完全非弹性碰撞（相遇即合并）来处理，所以你会看到天体一颗颗被吸收 —— 这不是 bug，而是'引力有耗散时系统的宿命'。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左上预设按钮：开普勒、双星、特洛伊、星环、混沌三体、碰撞合并。</li><li>鼠标滚轮缩放、拖动平移；「跟随镜头」决定画面是不是钉在质心上。</li><li>点空白处可以放新天体（按住可拖速度箭头）。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>在'星环'里放大看粒子密度波 —— 环不是实心的，是几十条细环。</li><li>切到'混沌三体'跑一两分钟，看三颗星怎么互相甩飞。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

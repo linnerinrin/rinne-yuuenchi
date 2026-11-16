@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Music Machine · 自动作曲机</title>
+<style>
+  :root{ --bg:#0a0810; --panel:rgba(26,22,38,.84); --line:rgba(255,255,255,.09);
+         --txt:#e8e4f2; --dim:#8b83a8; --acc:#c9a4ff; --warm:#ffcf76; --cool:#7ee0d0; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:radial-gradient(1200px 800px at 25% 0%,#1a1430 0%,#0a0810 62%);
+        color:var(--txt); font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; }
+  #cv{position:fixed; left:0; top:0; right:0; bottom:150px; width:100%; display:block}
+
+  #bar{position:fixed; left:14px; top:14px; z-index:10; display:flex; flex-wrap:wrap; gap:9px; align-items:center;
+       background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:9px 12px;
+       backdrop-filter:blur(12px); box-shadow:0 14px 44px rgba(0,0,0,.6); max-width:calc(100vw - 28px)}
+  #bar h1{font-size:13px; letter-spacing:.13em; font-weight:600}
+  #bar h1 span{color:var(--acc)}
+  .sep{width:1px; height:20px; background:var(--line)}
+  button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05); border:1px solid var(--line);
+         border-radius:7px; padding:5px 11px; cursor:pointer; transition:.12s}
+  button:hover{background:rgba(255,255,255,.15)}
+  button.on{background:rgba(201,164,255,.18); border-color:var(--acc); color:#fff}
+  button.prim{background:rgba(201,164,255,.22); border-color:var(--acc)}
+  label.sl{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:11.5px}
+  label.sl b{color:var(--txt); font-weight:500; min-width:38px; text-align:right}
+  input[type=range]{-webkit-appearance:none; width:76px; height:3px; background:#2e2840; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{font:inherit; color:var(--txt); background:rgba(20,16,32,.9); border:1px solid var(--line); border-radius:7px; padding:4px 7px}
+
+  #info{position:fixed; right:14px; top:14px; z-index:10; background:var(--panel); border:1px solid var(--line);
+        border-radius:12px; padding:9px 13px; backdrop-filter:blur(12px); text-align:right; line-height:1.85; min-width:180px}
+  #info .k{color:var(--dim); font-size:11.5px}
+  #info .v{color:var(--txt); font-weight:500}
+  #chord{font-size:22px; letter-spacing:.06em; color:var(--acc); font-weight:600; min-height:28px}
+
+  #strip{position:fixed; left:0; right:0; bottom:0; height:150px; z-index:9;
+         background:linear-gradient(180deg,rgba(12,9,20,.35),rgba(12,9,20,.92));
+         border-top:1px solid var(--line); padding:10px 16px}
+  #strip h2{font-size:10.5px; letter-spacing:.16em; color:var(--dim); text-transform:uppercase; margin-bottom:6px}
+  #roll{display:block; width:100%; height:96px}
+  #legend{display:flex; gap:16px; margin-top:6px; color:var(--dim); font-size:11px}
+  #legend i{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="bar">
+  <h1>自动<span>作曲机</span></h1>
+  <div class="sep"></div>
+  <button id="bPlay" class="prim">▶ 播放</button>
+  <button id="bNew">再生成一段</button>
+  <button id="bMidi">导出 MIDI</button>
+  <div class="sep"></div>
+  <label class="sl">速度 <input type="range" id="sBpm" min="52" max="150" step="1" value="84"><b id="vBpm">84</b></label>
+  <label class="sl">复杂度 <input type="range" id="sDen" min="0" max="100" step="1" value="46"><b id="vDen">46</b></label>
+  <label class="sl">色彩 <input type="range" id="sJazz" min="0" max="100" step="1" value="35"><b id="vJazz">35</b></label>
+  <select id="selKey"></select>
+  <select id="selMode">
+    <option value="major">大调</option>
+    <option value="minor" selected>小调</option>
+    <option value="dorian">多利亚</option>
+    <option value="lydian">利底亚</option>
+    <option value="mixolydian">混合利底亚</option>
+  </select>
+</div>
+
+<div id="info">
+  <div id="chord">Cm7</div>
+  <div><span class="k">调性</span> <span class="v" id="iKey">C 小调</span></div>
+  <div><span class="k">进行</span> <span class="v" id="iProg">i–VI–III–VII</span></div>
+  <div><span class="k">小节</span> <span class="v" id="iBar">0</span></div>
+</div>
+
+<div id="strip">
+  <h2>钢琴卷帘 · 最近 8 小节</h2>
+  <canvas id="roll" width="1400" height="192"></canvas>
+  <div id="legend">
+    <span><i style="background:#7ee0d0"></i>低音</span>
+    <span><i style="background:#c9a4ff"></i>和弦声部</span>
+    <span><i style="background:#ffcf76"></i>旋律</span>
+    <span><i style="background:#ff8fa8"></i>鼓</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   自动作曲机 —— 用乐理规则实时生成音乐
+
+   和声:调内三和弦/七和弦 + 功能性和声进行 + 声部进行优化(避免平行五八度)
+   旋律:和弦音落在强拍,经过音填充弱拍,带轮廓约束与呼吸停顿
+   节奏:鼓点模板 + 复杂度控制
+   输出:Web Audio 实时演奏 + 标准 MIDI 文件导出(可在 DAW 里打开)
+   ============================================================ */
+
+// ---------------- 可复现随机 ----------------
+let rngState = 12345;
+function srnd(n){ rngState = n>>>0; }
+function rnd(){
+  rngState ^= rngState<<13; rngState>>>=0;
+  rngState ^= rngState>>17;
+  rngState ^= rngState<<5;  rngState>>>=0;
+  return rngState / 4294967296;
+}
+const ri = (a,b) => a + Math.floor(rnd()*(b-a+1));
+const chance = p => rnd() < p;
+const pick = arr => arr[Math.floor(rnd()*arr.length)];
+
+// ---------------- 乐理基础 ----------------
+const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const MODES = {
+  major:      { steps:[0,2,4,5,7,9,11], label:"大调" },
+  minor:      { steps:[0,2,3,5,7,8,10], label:"小调" },
+  dorian:     { steps:[0,2,3,5,7,9,10], label:"多利亚" },
+  lydian:     { steps:[0,2,4,6,7,9,11], label:"利底亚" },
+  mixolydian: { steps:[0,2,4,5,7,9,10], label:"混合利底亚" }
+};
+// 各级三度叠置:返回音级偏移(0-based degree 累加)
+function triadDegrees(deg){
+  // deg: 0..6 → 在该级上叠两个三度(用音阶内音级,不按半音)
+  return [deg, deg+2, deg+4];
+}
+function seventhDegrees(deg){
+  return [deg, deg+2, deg+4, deg+6];
+}
+// 功能性和声进行候选(罗马数字级数,0-based)
+const PROGRESSIONS = {
+  major: [
+    [0,4,5,3],   // I–V–vi–IV
+    [0,5,3,4],   // I–vi–IV–V
+    [1,4,0,0],   // ii–V–I–I
+    [0,3,4,5],   // I–IV–V–vi
+    [5,3,0,4],   // vi–IV–I–V
+    [0,4,1,3],   // I–V–ii–IV
+    [3,4,5,0]    // IV–V–vi–I
+  ],
+  minor: [
+    [0,5,2,6],   // i–VI–III–VII
+    [0,3,5,4],   // i–iv–VI–V
+    [0,6,5,4],   // i–VII–VI–V
+    [0,2,6,3],   // i–III–VII–iv
+    [0,5,3,6],   // i–VI–iv–VII
+    [3,4,0,0],   // iv–v–i–i
+    [0,6,2,4]    // i–VII–III–v
+  ]
+};
+for(const k of ["dorian","lydian","mixolydian"]) PROGRESSIONS[k] = PROGRESSIONS.minor.concat(PROGRESSIONS.major);
+
+function romanOf(deg, mode){
+  const ROM = ["I","II","III","IV","V","VI","VII"];
+  const base = ROM[deg];
+  const minorish = (mode==="minor"||mode==="dorian") ? [0,2,5].includes(deg) : (mode==="mixolydian" ? [6].includes(deg) : false);
+  return minorish ? base.toLowerCase() : base;
+}
+
+// 音级(可越界)→ MIDI 音高
+function degreeToMidi(root, mode, deg){
+  const st = MODES[mode].steps;
+  const oct = Math.floor(deg/7), d = ((deg%7)+7)%7;
+  return root + st[d] + 12*oct;
+}
+
+// ---------------- 声部进行 ----------------
+// 计算一格里两个声部之间的音程类(0=八度, 7=五度, 其它忽略)
+function perfectClass(a, b){
+  const iv = Math.abs(a-b) % 12;
+  return (iv===0 || iv===7) ? iv : -1;
+}
+// 在 [lo,hi] 内铺开某级的和弦音
+function chordPoolFor(root, mode, degs, lo, hi){
+  const out = [];
+  for(let oct=-2; oct<=3; oct++){
+    for(const dd of degs){
+      const m = degreeToMidi(root, mode, dd) + 12*oct;
+      if(m>=lo && m<=hi) out.push(m);
+    }
+  }
+  return [...new Set(out)].sort((a,b)=>a-b);
+}
+// 给定上一个声部音高数组与目标和弦音高集合,选一组最平滑的音
+function voiceLead(prev, chordPool, size){
+  const pool = chordPool.slice().sort((a,b)=>a-b);
+  if(!prev || prev.length===0){
+    return pool.slice(0, size);
+  }
+  const used = new Set();
+  const out = [];
+  for(let v=0; v<Math.min(size, prev.length); v++){
+    let best=null, bestCost=1e9;
+    for(const p of pool){
+      if(used.has(p)) continue;
+      let cost = Math.abs(p - prev[v]);
+      if(v>0 && out[v-1]!==undefined){
+        if(p < out[v-1]) cost += 12;                            // 禁止声部交叉
+        // 平行五度/八度:上两声部若保持同类完全音程则重罚
+        for(let u=0; u<v; u++){
+          const before = perfectClass(prev[u], prev[v]);
+          const after  = perfectClass(out[u], p);
+          if(before>=0 && before===after && (prev[u]!==out[u] || prev[v]!==p)) cost += 22;
+        }
+      }
+      if(cost < bestCost){ bestCost = cost; best = p; }
+    }
+    if(best===null) best = pool[0];
+    used.add(best); out.push(best);
+  }
+  return out;
+}
+// 平行五度/八度检测:返回违规对
+function parallelFifthsOctaves(a, b){
+  const bad = [];
+  if(!a || !b) return bad;
+  for(let i=0;i<a.length;i++) for(let j=i+1;j<a.length;j++){
+    if(b[i]===undefined||b[j]===undefined) continue;
+    const i1 = perfectClass(a[i],a[j]), i2 = perfectClass(b[i],b[j]);
+    if(i1>=0 && i1===i2 && (a[i]!==b[i]||a[j]!==b[j])) bad.push([i,j, i1===7?"五度":"八度"]);
+  }
+  return bad;
+}
+
+// 在集合里找离 m 最近的音(限距 maxD),保证不跑出和弦/调
+function nearestInSet(set, m, maxD){
+  let best = m, bd = 1e9;
+  for(const s of set){
+    const d = Math.abs(s - m);
+    if(d < bd && d <= maxD){ bd = d; best = s; }
+  }
+  // 也考虑同音级的高八度/低八度
+  if(bd === 1e9){
+    for(const s of set) for(const o of [-12,12]){
+      const d = Math.abs(s+o - m);
+      if(d < bd && d <= maxD){ bd = d; best = s+o; }
+    }
+  }
+  return best;
+}
+// ---------------- 作曲核心 ----------------
+// 生成一段(默认 16 小节)完整音乐数据
+function compose(cfg){
+  const { root, mode, bpm, bars=16, density=0.5, jazz=0.35 } = cfg;
+  const prog = pick(PROGRESSIONS[mode]);
+  const beatsPerBar = 4;
+  const notes = [];        // {t(beat), dur(beat), midi, part, vel}
+  const chords = [];       // {bar, deg, midis, name}
+
+  // 1) 和弦声部:每小节 2 个和弦音(低音区),用声部进行平滑连接
+  let prevVoicing = null;
+  for(let bar=0; bar<bars; bar++){
+    const deg = prog[bar % prog.length];
+    const isSeventh = chance(0.25 + jazz*0.5);
+    const degs = isSeventh ? seventhDegrees(deg) : triadDegrees(deg);
+    const pool = chordPoolFor(root, mode, degs, 45, 67);
+    const size = 3 + (isSeventh?1:0);
+    const v = voiceLead(prevVoicing, pool, size);
+    prevVoicing = v;
+    const name = romanOf(deg, mode) + (isSeventh?"7":"");
+    const sorted = v.slice().sort((a,b)=>a-b);            // 低→高
+    // 顺带记下这一小节的和弦音集合,供旋律使用
+    chords.push({ bar, deg, midis: sorted.slice(), name, voicing: v.slice() });
+    // 和弦声部:每小节两个长音,后半小节换成本和弦内的邻音(保证不跑调)
+    for(let q=0;q<v.length;q++){
+      notes.push({ t: bar*beatsPerBar + 0, dur: 2.0, midi: v[q], part:"pad", vel: 50 + ri(0,8) });
+      const alt = chance(0.5) ? nearestInSet(sorted, v[q], 4) : v[q];
+      notes.push({ t: bar*beatsPerBar + 2, dur: 2.0, midi: alt, part:"pad", vel: 46 + ri(0,8) });
+    }
+    // 2) 低音:根音为主,偶尔加五度/八度。全部走音阶级数,天然不跑调
+    const degIndex = ((deg % 7) + 7) % 7;
+    // 低音音域:以 C2(36)为目标,把根音落到 36~47,再由测试可见地保持调内
+    const BASS_LO = 33, BASS_HI = 55;
+    const oct = Math.floor((38 - degreeToMidi(root,mode,degIndex))/12);
+    const bassDeg = degIndex + 7*oct;
+    const bassRoot = degreeToMidi(root, mode, bassDeg);
+    // 五度/八度同音级上下浮动,保证不跑调
+    const bassPool = [bassRoot, degreeToMidi(root,mode,bassDeg+2), degreeToMidi(root,mode,bassDeg+4),
+                      degreeToMidi(root,mode,bassDeg-7), degreeToMidi(root,mode,bassDeg+7)]
+                     .filter(m => m>=BASS_LO && m<=BASS_HI);
+    const pattern = pick([
+      [[0,1.5],[1.5,0.5],[2,1],[3,1]],
+      [[0,1],[1,1],[2,1],[3,1]],
+      [[0,2.5],[2.5,0.5],[3,1]],
+      [[0,0.75],[0.75,0.75],[1.5,0.5],[2,2]]
+    ]);
+    for(const [off, dur] of pattern){
+      const p = (chance(0.24) && bassPool.length>1) ? pick(bassPool) : bassRoot;
+      notes.push({ t: bar*beatsPerBar + off, dur: dur*0.95, midi: p, part:"bass", vel: 74 + ri(0,10) });
+    }
+    // 3) 鼓:底鼓/军鼓/踩镲,按复杂度增减
+    for(let b=0;b<beatsPerBar;b++){
+      const t = bar*beatsPerBar + b;
+      if(b===0 || b===2 || chance(0.12*density+0.05)) notes.push({ t, dur:0.25, midi:36, part:"drum", vel: 92+ri(0,12) });
+      if(b===1 || b===3 || chance(0.08)) notes.push({ t, dur:0.25, midi:38, part:"drum", vel: 84+ri(0,12) });
+      const hats = density>0.6 ? 4 : (density>0.25 ? 2 : 1);
+      for(let h=0; h<hats; h++){
+        if(chance(0.85 - density*0.15))
+          notes.push({ t: t + h*(4/hats)/1, dur:0.12, midi:42, part:"drum", vel: 46+ri(0,18) });
+      }
+    }
+  }
+  // 4) 旋律:按小节走,强拍取和弦音,弱拍走音阶,带轮廓与停顿
+  const MEL_LO = 63, MEL_HI = 96;                       // 旋律音域(避免和和弦声部撞车、也不越 MIDI)
+  const clampMel = m => Math.max(MEL_LO, Math.min(MEL_HI, m));
+  let prevMel = clampMel(degreeToMidi(root, mode, 7) + 12);
+  let contour = 0;
+  for(let bar=0; bar<bars; bar++){
+    const ch = chords[bar];
+    // 本小节可用的和弦音(限制在旋律音域)
+    const chordsForBar = chordPoolFor(root, mode, triadDegrees(ch.deg), MEL_LO, MEL_HI);
+    const scaleForBar = [];
+    for(let d=-2; d<=16; d++){ const m=degreeToMidi(root,mode,d); if(m>=MEL_LO&&m<=MEL_HI) scaleForBar.push(m); }
+    const slots = [];
+    for(let b=0;b<beatsPerBar;b++){
+      if(b%2===1 && chance(0.25)) continue;               // 偶尔留白
+      slots.push({ t: bar*beatsPerBar + b, strong:true });
+      if(chance(0.25 + density*0.45)) slots.push({ t: bar*beatsPerBar + b + 0.5, strong:false });
+    }
+    let rest = chance(0.1 + (1-density)*0.18);
+    for(const s of slots){
+      if(rest){ rest = chance(0.35); continue; }
+      let cand;
+      if(s.strong){
+        // 强拍:从最近的三个和弦音里挑(旋律音域内一定非空)
+        const pool = chordsForBar.length ? chordsForBar : scaleForBar;
+        if(!pool.length) continue;
+        const opts = pool.slice().sort((a,b)=>Math.abs(a-prevMel)-Math.abs(b-prevMel));
+        const win = opts.slice(0,3);
+        cand = (contour>=2 && chance(0.6)) ? win[win.length-1] : pick(win);
+        contour = Math.max(-3, Math.min(3, contour + (cand>prevMel?1:-1)));
+      } else {
+        // 弱拍:级进(音阶相邻音),方向与当前轮廓相反
+        const dir = contour>0 ? -1 : 1;
+        const d0 = nearestScaleDegree(root, mode, prevMel);
+        let best = prevMel, bd = 1e9;
+        for(const delta of [dir, dir*2, 0]){
+          const m = degreeToMidi(root, mode, d0+delta);
+          const dist = Math.abs(m - prevMel) + (delta===0?1:0);
+          if(dist < bd && m>=MEL_LO-2 && m<=MEL_HI+2){ bd = dist; best = m; }
+        }
+        cand = best;
+      }
+      if(!isFinite(cand)) continue;
+      cand = clampMel(Math.round(cand));
+      const dur = s.strong ? (chance(0.3)?1.5:0.9) : 0.45;
+      notes.push({ t:s.t, dur, midi:cand, part:"mel", vel: 66+ri(0,14) });
+      prevMel = cand;
+    }
+  }
+  notes.sort((a,b)=> a.t-b.t || a.midi-b.midi);
+  const totalBeats = bars*beatsPerBar;
+  // 收尾:末尾的音符不能拖出曲子范围
+  for(const n of notes){
+    if(n.t >= totalBeats) n.t = totalBeats - 0.25;
+    if(n.t + n.dur > totalBeats) n.dur = totalBeats - n.t;
+  }
+  return { cfg, prog, chords, notes, totalBeats, bpm,
+           secondsPerBeat: 60/bpm, key:NOTE_NAMES[((root%12)+12)%12], mode };
+}
+// 找最近的音阶级数
+function nearestScaleDegree(root, mode, midi){
+  let best=0, bd=1e9;
+  for(let d=-7; d<=21; d++){
+    const dist = Math.abs(degreeToMidi(root, mode, d) - midi);
+    if(dist<bd){ bd=dist; best=d; }
+  }
+  return best;
+}
+
+// ---------------- 校验函数(供测试与自检)----------------
+// 所有音是否都在调内(鼓除外)
+function outOfKeyNotes(piece){
+  const st = MODES[piece.cfg.mode].steps;
+  const bad = [];
+  for(const n of piece.notes){
+    if(n.part==="drum") continue;
+    const iv = ((n.midi - piece.cfg.root)%12+12)%12;
+    if(!st.includes(iv)) bad.push(n);
+  }
+  return bad;
+}
+
+// ---------------- MIDI 导出 ----------------
+function noteNameToMidi(name){
+  // 八度是可选的:下拉框里只给 "C"、"C#" 这类音名,原来的正则强制要求八度,
+  // 于是每个调性都匹配失败、一律返回 60(C4) —— 换调性完全没有反应
+  const m = /^([A-G])(#?)(-?\d+)?$/.exec(String(name==null?"":name).trim());
+  if(!m) return 60;
+  const base = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[m[1]];
+  const oct = m[3] === undefined ? 4 : parseInt(m[3],10);   // 省略八度时按 C4=60 那一带
+  return (oct+1)*12 + base + (m[2]==="#" ? 1 : 0);
+}
+function buildMidiFile(piece, transpose=0){
+  const spb = 60/piece.cfg.bpm;                 // 秒/拍
+  const PPQ = 480;
+  const beatsToTicks = b => Math.round(b*PPQ);
+  // 音符 → 事件
+  const evs = [];                                // {tick, on, midi, vel}
+  for(const n of piece.notes){
+    const p = n.midi + transpose;
+    if(p<0||p>127) continue;
+    evs.push({ tick: beatsToTicks(n.t),            on:1, midi:p, vel:n.vel||80 });
+    evs.push({ tick: beatsToTicks(n.t+n.dur),      on:0, midi:p, vel:0 });
+  }
+  // 按 tick 排序;同一 tick 先 off 后 on(避免同音吞掉)
+  evs.sort((a,b)=> a.tick-b.tick || a.on-b.on);
+  // 变长量
+  const vlq = v => { const b=[v&0x7f]; v>>=7; while(v>0){ b.unshift((v&0x7f)|0x80); v>>=7; } return b; };
+  const bytes = [];
+  const push = (...xs) => xs.forEach(x=>bytes.push(x&0xff));
+  const pushStr = s => { for(const ch of s) bytes.push(ch.charCodeAt(0)); };
+  const be32 = v => push((v>>>24)&0xff,(v>>>16)&0xff,(v>>>8)&0xff,v&0xff);
+  const be16 = v => push((v>>>8)&0xff, v&0xff);
+
+  // 轨道数据
+  const trk = [];
+  const tpush = (...xs) => xs.forEach(x=>trk.push(x&0xff));
+  // 速度元事件
+  const usPerBeat = Math.round(60000000/piece.cfg.bpm);
+  tpush(0x00,0xFF,0x51,0x03,(usPerBeat>>16)&0xff,(usPerBeat>>8)&0xff,usPerBeat&0xff);
+  // 拍号 4/4
+  tpush(0x00,0xFF,0x58,0x04,4,2,24,8);
+  // 曲名
+  const title = "Generated " + piece.key + " " + MODES[piece.cfg.mode].label;
+  tpush(0x00,0xFF,0x03,title.length); for(const c of title) tpush(c.charCodeAt(0));
+  // 音符事件
+  let last = 0;
+  for(const e of evs){
+    const dt = e.tick - last; last = e.tick;
+    for(const b of vlq(dt)) tpush(b);
+    if(e.on) tpush(0x90, e.midi, e.vel);
+    else     tpush(0x80, e.midi, 0x40);
+  }
+  // 结束
+  for(const b of vlq(Math.round(PPQ))) tpush(b);
+  tpush(0xFF,0x2F,0x00);
+
+  // 文件
+  pushStr("MThd"); be32(6); be16(0); be16(1); be16(PPQ);
+  pushStr("MTrk"); be32(trk.length); for(const b of trk) push(b);
+  return Uint8Array.from(bytes);
+}
+
+// ---------------- 音频引擎 ----------------
+let AC = null, master = null;
+function audioInit(){
+  if(AC) return;
+  AC = new (window.AudioContext||window.webkitAudioContext)();
+  master = AC.createGain();
+  master.gain.value = 0.5;
+  const comp = AC.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 4;
+  master.connect(comp); comp.connect(AC.destination);
+}
+function envTone(t, freq, dur, type, gain, decayTime){
+  if(!AC) return;
+  const o = AC.createOscillator(), g = AC.createGain(), f = AC.createBiquadFilter();
+  o.type = type; o.frequency.value = freq;
+  f.type = "lowpass"; f.frequency.value = Math.min(12000, freq*8);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain, t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(0.05, dur));
+  o.connect(f); f.connect(g); g.connect(master);
+  o.start(t); o.stop(t + Math.max(0.06, dur) + 0.05);
+}
+function playNote(n, tSec){
+  const f = 440*Math.pow(2,(n.midi-69)/12);
+  if(n.part==="pad"){
+    envTone(tSec, f, n.dur*0.98*spb(), "triangle", 0.055, 0.5);
+    envTone(tSec, f*1.0035, n.dur*0.98*spb(), "sine", 0.04, 0.5);   // 轻微失谐,更宽
+  } else if(n.part==="bass"){
+    envTone(tSec, f, Math.min(0.5, n.dur*0.9*spb()), "sawtooth", 0.10, 0.25);
+    envTone(tSec, f/2, Math.min(0.5, n.dur*0.9*spb()), "sine", 0.07, 0.25);
+  } else if(n.part==="mel"){
+    envTone(tSec, f, n.dur*0.95*spb(), "square", 0.035, 0.3);
+    envTone(tSec, f*2, n.dur*0.6*spb(), "sine", 0.018, 0.2);
+  } else if(n.part==="drum"){
+    if(n.midi===36){                                   // 底鼓
+      const o=AC.createOscillator(), g=AC.createGain();
+      o.frequency.setValueAtTime(120,tSec); o.frequency.exponentialRampToValueAtTime(42,tSec+0.09);
+      g.gain.setValueAtTime(0.5,tSec); g.gain.exponentialRampToValueAtTime(0.001,tSec+0.22);
+      o.connect(g); g.connect(master); o.start(tSec); o.stop(tSec+0.25);
+    } else if(n.midi===38){                            // 军鼓(噪声)
+      const len=Math.floor(AC.sampleRate*0.13), buf=AC.createBuffer(1,len,AC.sampleRate), d=buf.getChannelData(0);
+      for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);
+      const s=AC.createBufferSource(); s.buffer=buf;
+      const f=AC.createBiquadFilter(); f.type="highpass"; f.frequency.value=1400;
+      const g=AC.createGain(); g.gain.value=0.16;
+      s.connect(f); f.connect(g); g.connect(master); s.start(tSec);
+    } else {                                           // 踩镲
+      const len=Math.floor(AC.sampleRate*0.05), buf=AC.createBuffer(1,len,AC.sampleRate), d=buf.getChannelData(0);
+      for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);
+      const s=AC.createBufferSource(); s.buffer=buf;
+      const f=AC.createBiquadFilter(); f.type="highpass"; f.frequency.value=7000;
+      const g=AC.createGain(); g.gain.value=0.055;
+      s.connect(f); f.connect(g); g.connect(master); s.start(tSec);
+    }
+  }
+}
+let curBpm = 84;
+const spb = () => 60/curBpm;
+
+// ---------------- 播放状态机 ----------------
+let piece = null, playing = false;
+let loopStart = 0, scheduledUpTo = 0, barCursor = 0, activeBar = 0;
+function makeNewPiece(){
+  const root = noteNameToMidi(keySel.value || "C");
+  const mode = MODES[modeSel.value] ? modeSel.value : "minor";
+  piece = compose({ root, mode, bpm: +sBpm.value || 84,
+                    bars: 16, density: (+sDen.value)/100, jazz: (+sJazz.value)/100 });
+  curBpm = piece.cfg.bpm;                     // 演奏用的时长基准是 curBpm,不跟着改就会和 piece.cfg.bpm 打架
+  barCursor = 0; scheduledUpTo = 0; activeBar = 0;
+  // 正在播放时换曲:把时间轴也重新对齐,否则 nowBeat 会瞬间变成几百拍,
+  // 预排循环一口气空转几百轮(全是已经过去的时刻,全部被跳过)
+  if(playing && AC) loopStart = AC.currentTime + 0.1;
+  history.length = 0;
+  return piece;
+}
+// 把 piece 里 beat 区间 [from,to) 的音符安排到绝对时间
+function spb0(){ return 60/piece.cfg.bpm; }
+let live = [];
+let history = [];
+
+// ---------------- 绘制 ----------------
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const roll = document.getElementById("roll"), rctx = roll.getContext("2d");
+let W=0,H=0,DPR=1;
+function sizeUp(){
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  W = Math.floor(innerWidth*DPR); H = Math.floor((innerHeight-150)*DPR);
+  cv.width=W; cv.height=H; cv.style.height=(innerHeight-150)+"px";
+}
+// 主画面:声部可视化(低音柱 + 和弦 + 旋律点 + 鼓)
+function drawMain(){
+  ctx.setTransform(1,0,0,1,0,0);
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,"#120e22"); g.addColorStop(1,"#0a0810");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  if(!piece) return;
+  // 时钟必须用 AudioContext 的时间:loopStart 是 AC.currentTime 量级,
+  // 拿 rAF 的 performance.now() 去减会得到几万拍的巨大数,小节号/和弦名于是永远不刷新
+  const acNow = AC ? AC.currentTime : 0;
+  const beatNow = playing && AC ? (acNow - loopStart)/spb0() : activeBar*4;
+  // 小节线
+  const barW = W/8;
+  ctx.strokeStyle="rgba(255,255,255,.055)"; ctx.lineWidth=1*DPR;
+  for(let k=0;k<=8;k++){ ctx.beginPath(); ctx.moveTo(k*barW,0); ctx.lineTo(k*barW,H); ctx.stroke(); }
+  // 当前小节高亮
+  const bars = piece.cfg.bars || 16;
+  const curBar = Math.max(0, Math.min(bars-1, Math.floor(beatNow/4)));
+  const curBarMod = ((curBar%8)+8)%8;
+  ctx.fillStyle="rgba(201,164,255,.055)";
+  ctx.fillRect(curBarMod*barW, 0, barW, H);
+
+  const pad=40*DPR, usable=H-pad*2;
+  const midiLo=28, midiHi=96;
+  const Y = m => pad + (midiHi-m)/(midiHi-midiLo)*usable;
+  // 发声中的音符
+  for(const n of live){
+    const pos = (n.beat - beatNow)/32 + 0.5;         // 只显示前后各 16 拍
+    if(pos<-0.02 || pos>1.02) continue;
+    const x = pos*W;
+    const col = n.part==="bass" ? "#7ee0d0" : n.part==="pad" ? "#c9a4ff" : n.part==="mel" ? "#ffcf76" : "#ff8fa8";
+    const age = playing && AC ? Math.min(1, (acNow - n.start)/Math.max(0.05, spb0()*2)) : 1;
+    const a = 0.16 + (1-age)*0.72;
+    ctx.fillStyle = hexA(col, a);
+    const r = n.part==="pad" ? 9*DPR : n.part==="bass" ? 7*DPR : n.part==="drum" ? 5*DPR : 6.5*DPR;
+    ctx.beginPath(); ctx.arc(x, Y(n.midi), r, 0, 6.2832); ctx.fill();
+    if(n.part!=="drum"){
+      // 音名
+      ctx.fillStyle = hexA(col, Math.min(1,a+0.2));
+      ctx.font = (10*DPR)+"px ui-monospace, monospace";
+      ctx.fillText(NOTE_NAMES[((n.midi%12)+12)%12] + (Math.floor(n.midi/12)-1), x+r+3*DPR, Y(n.midi)+3.5*DPR);
+    }
+  }
+  // 播放头
+  ctx.strokeStyle="rgba(255,255,255,.5)"; ctx.lineWidth=1.5*DPR;
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  // 和弦名
+  if(piece.chords[curBar]) {
+    const c = piece.chords[curBar];
+    chordEl.textContent = c.name + "  " + NOTE_NAMES[((c.midis[0]%12)+12)%12];
+  }
+  iBarEl.textContent = curBar + " / " + (piece.cfg.bars||16);
+}
+function hexA(hex, a){
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return "rgba("+r+","+g+","+b+","+a.toFixed(3)+")";
+}
+// 卷帘
+function drawRoll(){
+  const w=roll.width, h=roll.height;
+  rctx.clearRect(0,0,w,h);
+  if(!piece) return;
+  const BARS=8, beats=BARS*4, bw=w/beats;
+  rctx.strokeStyle="rgba(255,255,255,.06)"; rctx.lineWidth=1;
+  for(let b=0;b<=beats;b++){ rctx.beginPath(); rctx.moveTo(b*bw,0); rctx.lineTo(b*bw,h); rctx.stroke(); }
+  const lo=28, hi=96, Y = m => h - (m-lo)/(hi-lo)*h;
+  const cur = activeBar*4;
+  for(const n of piece.notes){
+    const rel = n.t - cur;
+    if(rel < -1 || rel > beats) continue;
+    if(n.t < cur) continue;
+    const x = rel*bw, len = Math.max(2, n.dur*bw);
+    const col = n.part==="bass" ? "#7ee0d0" : n.part==="pad" ? "#c9a4ff" : n.part==="mel" ? "#ffcf76" : "#ff8fa8";
+    rctx.fillStyle = hexA(col, n.part==="drum"?0.55:0.9);
+    const y = Y(n.midi);
+    rctx.fillRect(x, y-2, len, n.part==="drum"?3:4);
+  }
+  // 播放头
+  const t = rollBeat();
+  if(t!==null){
+    const x = (t-cur)*bw;
+    if(x>=0&&x<=w){ rctx.strokeStyle="rgba(255,255,255,.75)"; rctx.lineWidth=1.5;
+      rctx.beginPath(); rctx.moveTo(x,0); rctx.lineTo(x,h); rctx.stroke(); }
+  }
+}
+function rollBeat(){ return playing && AC ? (AC.currentTime - loopStart)/spb0() : null; }
+
+// ---------------- 主循环 ----------------
+function loop(){
+  if(playing && AC){
+    // 预排:Loop 长度为 16 小节,循环生成"下一段"以保持不断
+    const beatsPerBar = 4;
+    const loopBeats = piece.cfg.bars*beatsPerBar;
+    const nowBeat = (AC.currentTime - loopStart)/spb0();
+    while(scheduledUpTo < nowBeat + 4){                 // 提前 4 拍预排
+      // 把 [scheduledUpTo, +1) 区间的音符安排出去
+      const from = scheduledUpTo, to = scheduledUpTo+1;
+      for(const n of piece.notes){
+        if(n.t < from || n.t >= to) continue;
+        const when = loopStart + n.t*spb0();
+        if(when >= AC.currentTime - 0.02){
+          playNote(n, when);
+          live.push({ part:n.part, midi:n.midi, beat:n.t, start:when });
+        }
+      }
+      scheduledUpTo = to;
+      if(scheduledUpTo >= loopBeats){
+        // 循环:把整段时间轴后移一个 loop 长度,重新安排
+        loopStart += loopBeats*spb0();
+        scheduledUpTo -= loopBeats;
+      }
+    }
+    activeBar = Math.floor(((AC.currentTime - loopStart)/spb0())/4);
+    if(activeBar < 0) activeBar = 0;
+    if(activeBar >= piece.cfg.bars) activeBar = piece.cfg.bars-1;
+    // 清理已结束的发声音符
+    live = live.filter(n => AC.currentTime - n.start < 3.5);
+  }
+  drawMain();
+  drawRoll();
+  requestAnimationFrame(loop);
+}
+
+// ---------------- UI ----------------
+const keySel=document.getElementById("selKey"), modeSel=document.getElementById("selMode");
+const sBpm=document.getElementById("sBpm"), vBpm=document.getElementById("vBpm");
+const sDen=document.getElementById("sDen"), vDen=document.getElementById("vDen");
+const sJazz=document.getElementById("sJazz"), vJazz=document.getElementById("vJazz");
+const chordEl=document.getElementById("chord"), iBarEl=document.getElementById("iBar");
+const iKeyEl=document.getElementById("iKey"), iProgEl=document.getElementById("iProg");
+for(let i=0;i<12;i++){
+  const o=document.createElement("option");
+  o.value=NOTE_NAMES[i]; o.textContent=NOTE_NAMES[i]+" (MIDI "+(noteNameToMidi(NOTE_NAMES[i]))+")";
+  keySel.appendChild(o);
+}
+keySel.value = "C";
+sBpm.oninput=()=>{
+  vBpm.textContent=sBpm.value;
+  if(!piece) return;
+  // 播放中改速度:先把"当前第几拍"算出来,改完再把时间轴原点挪回去 ——
+  // 否则整条时间轴会跟着新 spb0 重新解释,画面和声音一起跳一下
+  const beat = playing && AC ? (AC.currentTime - loopStart)/spb0() : activeBar*4;
+  piece.cfg.bpm = curBpm = +sBpm.value;
+  if(playing && AC) loopStart = AC.currentTime - beat*spb0();
+};
+sDen.oninput=()=>{ vDen.textContent=sDen.value; };
+sJazz.oninput=()=>{ vJazz.textContent=sJazz.value; };
+keySel.onchange = modeSel.onchange = ()=>{ makeNewPiece(); showMeta(); };
+document.getElementById("bNew").onclick = ()=>{ makeNewPiece(); showMeta(); };
+const bPlay=document.getElementById("bPlay");
+bPlay.onclick = async ()=>{
+  audioInit();
+  if(AC.state==="suspended") await AC.resume();
+  if(!playing){
+    playing = true;
+    loopStart = AC.currentTime + 0.15;
+    scheduledUpTo = 0;
+    live = [];
+    bPlay.textContent = "■ 停止"; bPlay.classList.add("on");
+  } else {
+    playing = false;
+    bPlay.textContent = "▶ 播放"; bPlay.classList.remove("on");
+  }
+};
+document.getElementById("bMidi").onclick = ()=>{
+  const data = buildMidiFile(piece);
+  const blob = new Blob([data], {type:"audio/midi"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "generated-" + piece.key + "-" + piece.cfg.mode + "-" + piece.cfg.bpm + "bpm.mid";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+};
+function showMeta(){
+  iKeyEl.textContent = piece.key + " " + MODES[piece.cfg.mode].label;
+  iProgEl.textContent = piece.prog.map(d=>romanOf(d, piece.cfg.mode)).join("–");
+}
+sizeUp(); addEventListener("resize", ()=>{ sizeUp(); });
+makeNewPiece(); showMeta();
+requestAnimationFrame(loop);            // ← 没有这一行,整个页面一次都不会绘制:按钮全像坏的
+// 卷帘宽度跟随窗口
+roll.width = Math.max(600, Math.floor((innerWidth-40)*DPR));
+addEventListener("resize", ()=>{ roll.width = Math.max(600, Math.floor((innerWidth-40)*DPR)); });
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:162px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">音乐机器 · Music Machine</h2>
+    <p class="hp-lead">把和声规则翻译成参数，让程序按调性、节拍和情绪自动生成一段循环的电子乐，还能导出 MIDI。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>十二平均律</b>　一个八度等分成 12 个半音，音高与频率是等比关系：f = 440 × 2^((midi−69)/12)。所谓'音阶'就是从这 12 个格子里挑 7 个（大调挑 0 2 4 5 7 9 11，小调挑 0 2 3 5 7 8 10）。选'调性'其实只是整体平移了几个半音。</p><p><b>和声进行</b>　每一小节配一个和弦，和弦音来自调内级数（I、IV、V、vi…）。生成器把四部和声里最稳的反圈进行（I–V–vi–IV 之类）当骨架，再加一点随机替换，所以听着'顺'但不重复。</p><p><b>声音合成：振荡器 + 包络</b>　所有声音都现场算出来的：正弦/锯齿/三角波当振荡器，再用 ADSR 包络（起音 Attack、衰减 Decay、延音 Sustain、释放 Release）控制音量随时间的样子。打击乐则是噪声 + 极短包络。这就是减法合成的核心 —— 音色 = 波形 × 包络 × 滤波器。</p><p><b>MIDI 是什么</b>　MIDI 不是音频，是一张'演奏指令单'：什么时刻、哪个音、力度多大、持续多久。导出按钮把同一份音符表按标准 MIDI 文件格式（MThd/MTrk 头 + 变长整数时间差）写出来，所以能丢进任何 DAW 里换音源。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>选调性与速度（BPM），点播放。音符会在钢琴卷帘上滚动，同时实时合成。</li><li>换和弦进行 / 密度 / 音色，点「重来一曲」生成新曲子；「导出 MIDI」存成 .mid 文件。</li><li>面板显示当前小节、当前和弦、同时发声的音符数。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>换到小调听听'情绪'怎么变暗 —— 因为三级和六级的音被降了半音。</li><li>把密度拉满，听低音、和声、旋律、鼓四条轨道怎么挤在一起又互不打架。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

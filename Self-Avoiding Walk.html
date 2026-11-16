@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Self-Avoiding Walk · 链与自避</title>
+<style>
+  :root{ --bg:#07080e; --panel:rgba(18,20,30,.88); --line:rgba(255,255,255,.10);
+         --txt:#e8ebf5; --dim:#7d86a0; --acc:#7ee0b8; --warm:#ffcf6b; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:#07080e; color:var(--txt);
+        font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; display:flex; }
+  #side{width:262px; flex:0 0 262px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px); z-index:5}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#2b3245; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.15em; margin:3px 0 15px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:15px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:52px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2b3245; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(16,18,28,.95);
+         border:1px solid var(--line); border-radius:7px; padding:5px 7px; margin-bottom:2px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .grid2 button{font:inherit; font-size:11px; color:var(--txt); background:rgba(255,255,255,.05);
+                border:1px solid var(--line); border-radius:7px; padding:5px 3px; cursor:pointer; transition:.12s}
+  .grid2 button:hover{background:rgba(255,255,255,.15)}
+  .grid2 button.on{background:rgba(126,224,184,.18); border-color:var(--acc); color:#fff}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px; cursor:pointer}
+  .btns button:hover{background:rgba(255,255,255,.15)}
+  .btns button.prim{grid-column:1/-1; background:rgba(126,224,184,.20); border-color:var(--acc)}
+  #readout{color:var(--dim); font-size:11px; line-height:1.8; border-top:1px solid var(--line);
+           padding-top:9px; margin-top:13px}
+  #readout b{color:var(--txt); font-weight:500}
+  #readout .hi{color:var(--acc)}
+  #stage{flex:1; display:flex; align-items:center; justify-content:center; gap:16px;
+         padding:16px; min-width:0; overflow:hidden; flex-wrap:wrap}
+  #chain{display:block; border-radius:8px;
+         box-shadow:0 24px 64px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.07)}
+  #right{display:flex; flex-direction:column; gap:12px}
+  .card{background:rgba(18,20,30,.86); border:1px solid var(--line); border-radius:10px; padding:9px 11px}
+  .card h3{font-size:10px; letter-spacing:.14em; color:var(--dim); text-transform:uppercase; margin-bottom:6px; font-weight:500}
+  .card canvas{display:block; border-radius:5px}
+  #hint{position:fixed; left:50%; bottom:13px; transform:translateX(-50%); color:var(--dim);
+        font-size:11px; background:rgba(7,8,14,.78); border:1px solid var(--line);
+        border-radius:8px; padding:5px 13px; pointer-events:none; white-space:nowrap}
+  #hint b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>链与<span>自避</span></h1>
+  <div class="sub">SELF-AVOIDING WALK · POLYMER</div>
+
+  <div class="grp">生成方式</div>
+  <div class="grid2" id="modeBox"></div>
+
+  <div class="grp">参数</div>
+  <div class="row"><label>链长 N</label><b id="vN">120</b></div>
+  <input type="range" id="sN" min="10" max="600" step="10" value="120">
+  <div class="row"><label>生长速度(格/秒)</label><b id="vSpeed">12 格/秒</b></div>
+  <input type="range" id="sSpeed" min="1" max="120" step="1" value="12">
+  <div class="row"><label>显示链数</label><b id="vChains">1</b></div>
+  <input type="range" id="sChains" min="1" max="12" step="1" value="1">
+
+  <div class="grp">显示</div>
+  <select id="selView">
+    <option value="mono">单色渐变</option>
+    <option value="ends">末端着色</option>
+    <option value="hue">按转角着色</option>
+  </select>
+  <div class="row"><label>网格</label><b id="vGrid">开</b></div>
+  <input type="range" id="sGrid" min="0" max="1" step="1" value="1">
+
+  <div class="grp">统计</div>
+  <div class="btns">
+    <button id="bRun" class="prim">▶ 开始采样</button>
+    <button id="bStop">停止</button>
+    <button id="bReset">清空统计</button>
+  </div>
+  <div id="readout">
+    已采样链 <b id="rSamples">0</b><br>
+    ⟨R²⟩(N=<b id="rNref">0</b>) <b id="rR2">0</b><br>
+    <span class="hi">实测指数 ν</span> <b id="rNu">—</b><br>
+    理论:⟨R²⟩ ∝ N^(2ν),二维 ν ≈ <b>0.75</b><br>
+    成功率 <b id="rRate">—</b> · <b id="rFps">--</b> fps
+  </div>
+</aside>
+
+<div id="stage">
+  <canvas id="chain" width="620" height="620"></canvas>
+  <div id="right">
+    <div class="card"><h3>均方末端距 ⟨R²⟩ vs N(双对数)</h3><canvas id="plot" width="340" height="240"></canvas></div>
+    <div class="card"><h3>末端距分布</h3><canvas id="hist" width="340" height="110"></canvas></div>
+  </div>
+</div>
+<div id="hint">自避:链条不能碰到自己 —— 这条约束就足以让 ⟨R²⟩ 从 N(随机游走)变成 <b>N^1.5</b></div>
+
+<script>
+"use strict";
+/* ============================================================
+   自避随机游走(SAW)—— 高分子链的最小模型
+
+   规则:在方格上走,不能踩已经走过的格点。
+   关键结果:⟨R²⟩ ∝ N^(2ν),二维 ν ≈ 0.75(随机游走是 ν = 0.5)。
+   这个 0.75 是"自避"这一条约束直接推出来的,不是随便调的。
+
+   本文件提供两套算法:
+     · growWalk  简单生长(CHORD 版近似) —— 用于实时动画
+     · pivotWalk 枢轴算法 —— 各态历经,用于正确采样(统计用这个)
+   以及精确枚举 exactCount(小 N 时用来和文献整数对拍)。
+   ============================================================ */
+
+// ---------------- 可复现随机 ----------------
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 四个方向
+const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
+
+// ---------------- 简单生长(动画用)----------------
+// 贪心 + 随机:优先走未访问的邻居;若无路可走则提前结束。
+// 返回 {x:[], y:[], trapped:bool}
+function growWalk(N, rnd, preferStraight){
+  const x = new Int32Array(N+1), y = new Int32Array(N+1);
+  const seen = new Set();
+  x[0] = 0; y[0] = 0;
+  seen.add("0,0");
+  let n = 0;
+  for(let k=0;k<N;k++){
+    const cx = x[n], cy = y[n];
+    const free = [];
+    for(let d=0;d<4;d++){
+      const nx = cx+DX[d], ny = cy+DY[d];
+      if(!seen.has(nx+","+ny)) free.push(d);
+    }
+    if(!free.length) return { x:x.slice(0,n+1), y:y.slice(0,n+1), n, trapped:true };
+    let pick;
+    if(preferStraight && n>0){
+      // 偏向继续直行 → 更"伸展"的构象
+      const last = lastDir(x[n-1], y[n-1], cx, cy);
+      const straight = free.filter(d => d===last);
+      pick = (straight.length && rnd()<0.62) ? straight[0] : free[(rnd()*free.length)|0];
+    } else {
+      pick = free[(rnd()*free.length)|0];
+    }
+    n++;
+    x[n] = cx+DX[pick]; y[n] = cy+DY[pick];
+    seen.add(x[n]+","+y[n]);
+  }
+  return { x, y, n, trapped:false };
+}
+function lastDir(px,py,cx,cy){
+  if(cx>px) return 0; if(cy>py) return 1; if(cx<px) return 2; return 3;
+}
+
+// ---------------- 枢轴算法(正确采样用)----------------
+// 初始构象:直接沿 x 轴摆一条直线 —— 一定是自避的,且长度精确等于 N。
+// (早先用"贪心生长"初始化,会被自己困住而给出短于 N 的链,导致统计里的 N 名不副实。)
+function makeChain(N, rnd){
+  const x = new Int32Array(N+1), y = new Int32Array(N+1);
+  for(let k=0;k<=N;k++){ x[k]=k; y[k]=0; }
+  // 先做几轮枢轴,把直线松弛成典型构象(直线是合法态,但属于极端构象)
+  const ch = { N, x, y };
+  if(rnd && N >= 2) pivotSteps(ch, Math.max(30, N), rnd);
+  return ch;
+}
+// 一次 pivot:随机取一个顶点,把链的一段绕它旋转 90/180/270 度;
+// 若旋转后仍不自避则拒绝。这是各态历经的,样本才是无偏的。
+function pivotSteps(ch, tries, rnd){
+  const { N, x, y } = ch;
+  if(N < 2) return 0;
+  let acc = 0;
+  const seen = new Set();
+  const px = new Int32Array(N+1), py = new Int32Array(N+1);
+  for(let t=0;t<tries;t++){
+    const p = 1 + ((rnd()*(N-1))|0);          // pivot 顶点 1..N-1
+    const rot = 1 + ((rnd()*3)|0);            // 90/180/270
+    const cs = [1,0,-1,0][rot], sn = [0,1,0,-1][rot];
+    const ox = x[p], oy = y[p];
+    // 生成候选
+    seen.clear();
+    px[0]=x[0]; py[0]=y[0]; seen.add(px[0]+","+py[0]);
+    let reject = false;
+    for(let k=1;k<=N;k++){
+      if(k <= p){ px[k]=x[k]; py[k]=y[k]; }
+      else {
+        const dx = x[k]-ox, dy = y[k]-oy;
+        px[k] = ox + dx*cs - dy*sn;
+        py[k] = oy + dx*sn + dy*cs;
+      }
+      const key = px[k]+","+py[k];
+      if(seen.has(key)){ reject = true; break; }   // 自交,拒绝
+      seen.add(key);
+    }
+    if(reject) continue;
+    // 接受:写回
+    for(let k=0;k<=N;k++){ x[k]=px[k]; y[k]=py[k]; }
+    acc++;
+  }
+  return acc;
+}
+
+// ---------------- 精确枚举(和文献整数对拍)----------------
+// 返回 [c(0), c(1), ..., c(maxN)],其中 c(N) = 长度为 N 的自避行走条数
+function exactCount(maxN){
+  const counts = new Array(maxN+1).fill(0);
+  const seen = new Set();
+  const dfs = (x, y, n) => {
+    counts[n]++;
+    if(n === maxN) return;
+    for(let d=0;d<4;d++){
+      const nx = x+DX[d], ny = y+DY[d], key = nx+","+ny;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      dfs(nx, ny, n+1);
+      seen.delete(key);
+    }
+  };
+  seen.add("0,0");
+  dfs(0, 0, 0);
+  return counts;
+}
+
+// ---------------- 采样与统计 ----------------
+// 用枢轴算法在当前长度上取样,估计 ⟨R²⟩
+// 返回 {r2, samples}
+function measureR2(N, rnd, samples, therm){
+  therm = therm || Math.max(40, N*2);
+  const ch = makeChain(N, rnd);
+  if(ch.N < 4) return { r2: NaN, samples: 0, actualN: ch.N };
+  let sum = 0, cnt = 0;
+  for(let s=0; s<therm + samples; s++){
+    pivotSteps(ch, 1, rnd);
+    if(s < therm) continue;
+    const dx = ch.x[ch.N]-ch.x[0], dy = ch.y[ch.N]-ch.y[0];
+    sum += dx*dx + dy*dy;
+    cnt++;
+  }
+  return { r2: cnt ? sum/cnt : NaN, samples: cnt, actualN: ch.N };
+}
+
+// 对若干 N 求 ⟨R²⟩,再拟合 ν(⟨R²⟩ ∝ N^(2ν))
+function measureScaling(list, rnd, samples){
+  const pts = [];
+  for(const N of list){
+    const m = measureR2(N, rnd, samples);
+    if(isFinite(m.r2) && m.r2 > 0) pts.push({ N:m.actualN, r2:m.r2 });
+  }
+  if(pts.length < 3) return { nu: NaN, pts };
+  // log-log 最小二乘:log⟨R²⟩ = 2ν·logN + c
+  let sx=0, sy=0, sxx=0, sxy=0;
+  for(const p of pts){ const X=Math.log(p.N), Y=Math.log(p.r2); sx+=X; sy+=Y; sxx+=X*X; sxy+=X*Y; }
+  const m = pts.length, den = m*sxx - sx*sx;
+  const slope = den===0 ? NaN : (m*sxy - sx*sy)/den;
+  return { nu: slope/2, slope, pts, samples:m };
+}
+
+// ---------------- 色表 / 绘制辅助 ----------------
+function hsl(h,s,l,a){ return a===undefined ? `hsl(${h},${s}%,${l}%)` : `hsla(${h},${s}%,${l}%,${a})`; }
+
+// ============================================================
+//  浏览器部分
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("chain")){
+  const cv = document.getElementById("chain"), ctx = cv.getContext("2d");
+  const plot = document.getElementById("plot"), pctx = plot.getContext("2d");
+  const hist = document.getElementById("hist"), hctx = hist.getContext("2d");
+
+  let N = 120, speed = 12, chainCount = 1, viewMode = "mono", showGrid = true, mode = "grow";
+  let rnd = mulberry(20261017);
+  let chains = [];                 // 动画用的链(逐步生长)
+  let growAcc = 0;                 // 生长累加器:速度按"格/秒"算,与帧率解耦
+  let holdT = 0;                   // 画完一条后停留多久再换下一条
+  let samples = 0;                 // 统计采样数
+  let stats = [];                  // 每个 N 的 ⟨R²⟩
+  let samplerRunning = false;
+  let r2Hist = [];                 // 末端距分布
+  let okCount = 0, tryCount = 0;
+
+  const MODES = {
+    "直线偏好": "straight",
+    "纯随机":   "plain",
+    "吸附壁":   "wall"
+  };
+
+  function rebuild(){
+    chains = [];
+    const inited = [];
+    for(let k=0;k<chainCount;k++){
+      // 先生成完整链,再按步数播放动画
+      const g = growWalk(N, rnd, mode==="straight");
+      chains.push({ full:g, n:0 });
+    }
+    growAcc = 0; holdT = 0;
+  }
+  // 统计清零必须单独拆出来:rebuild() 每看完一条链都会被调用一次,
+  // 顺手清空的话"开始采样"永远攒不到数据(原来就是这样,采到多少都没了)
+  function resetStats(){
+    stats = []; samples = 0; r2Hist = [];
+    nu = NaN; tryCount = 0; okCount = 0;
+  }
+
+  // 世界坐标 → 画布:按当前所有链的包围盒自适应
+  function makeTransform(){
+    let lo = [1e9,1e9], hi = [-1e9,-1e9];
+    for(const c of chains){
+      const g = c.full;
+      for(let k=0;k<=g.n;k++){
+        if(g.x[k]<lo[0]) lo[0]=g.x[k];
+        if(g.y[k]<lo[1]) lo[1]=g.y[k];
+        if(g.x[k]>hi[0]) hi[0]=g.x[k];
+        if(g.y[k]>hi[1]) hi[1]=g.y[k];
+      }
+    }
+    const w = cv.width, h = cv.height, pad = 26;
+    const sx = (hi[0]-lo[0])||1, sy = (hi[1]-lo[1])||1;
+    const s = Math.min((w-2*pad)/sx, (h-2*pad)/sy);
+    const ox = (w - sx*s)/2 - lo[0]*s, oy = (h - sy*s)/2 - lo[1]*s;
+    return { s, ox, oy, lo, hi, span:Math.max(sx,sy) };
+  }
+
+  function drawChain(){
+    const w = cv.width, h = cv.height;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle = "#080a12"; ctx.fillRect(0,0,w,h);
+    if(!chains.length) return;
+    const T = makeTransform();
+    // 网格
+    if(showGrid && T.s > 3){
+      ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
+      const step = T.s;
+      for(let x=T.lo[0]; x<=T.hi[0]; x++){
+        const px = T.ox + x*step;
+        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+      }
+      for(let y=T.lo[1]; y<=T.hi[1]; y++){
+        const py = T.oy + y*step;
+        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
+      }
+    }
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for(let ci=0; ci<chains.length; ci++){
+      const g = chains[ci].full, upto = chains[ci].n;
+      if(upto < 1) continue;
+      // 逐段画,颜色按模式
+      for(let k=0;k<upto;k++){
+        const x1 = T.ox + g.x[k]*T.s, y1 = T.oy + g.y[k]*T.s;
+        const x2 = T.ox + g.x[k+1]*T.s, y2 = T.oy + g.y[k+1]*T.s;
+        let col;
+        const t = k/Math.max(1,upto-1);
+        if(viewMode === "ends") col = hsl(190 + t*130, 85, 58);
+        else if(viewMode === "hue"){
+          let d = lastDir(g.x[k], g.y[k], g.x[k+1], g.y[k+1]);
+          col = hsl([10, 60, 150, 260][d], 82, 58);
+        } else col = hsl(165 + ci*40 + t*30, 78, 52 + t*14);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = Math.max(2, Math.min(7, T.s*0.34));
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      }
+      // 起点 / 末端
+      const gx = g.x[0], gy = g.y[0];
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(T.ox+gx*T.s, T.oy+gy*T.s, Math.max(3, T.s*0.28), 0, 6.2832); ctx.fill();
+      if(upto === g.n){
+        const ex = g.x[g.n], ey = g.y[g.n];
+        ctx.fillStyle = "#ff6b6b";
+        ctx.beginPath(); ctx.arc(T.ox+ex*T.s, T.oy+ey*T.s, Math.max(3.5, T.s*0.32), 0, 6.2832); ctx.fill();
+        // 末端距虚线
+        ctx.strokeStyle = "rgba(255,107,107,.55)"; ctx.lineWidth = 1.6;
+        ctx.setLineDash([6,5]);
+        ctx.beginPath(); ctx.moveTo(T.ox+gx*T.s, T.oy+gy*T.s); ctx.lineTo(T.ox+ex*T.s, T.oy+ey*T.s); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    // 提示
+    ctx.fillStyle = "rgba(200,210,230,.75)"; ctx.font = "11px ui-monospace, monospace";
+    const cur = chains[0];
+    ctx.fillText(`N=${cur.full.n}${cur.full.trapped?" (被自己困住)":""}  已画 ${cur.n}`, 10, 18);
+  }
+
+  function drawPlot(){
+    const w = plot.width, h = plot.height, pad = 34;
+    pctx.clearRect(0,0,w,h);
+    pctx.fillStyle = "rgba(0,0,0,.35)"; pctx.fillRect(0,0,w,h);
+    pctx.strokeStyle = "rgba(255,255,255,.22)"; pctx.lineWidth = 1;
+    pctx.beginPath(); pctx.moveTo(pad,6); pctx.lineTo(pad,h-pad); pctx.lineTo(w-6,h-pad); pctx.stroke();
+    pctx.fillStyle = "rgba(200,210,230,.85)"; pctx.font = "10px ui-monospace, monospace";
+    pctx.fillText("log⟨R²⟩", 4, 14); pctx.fillText("log N", w-38, h-8);
+    if(stats.length < 2){
+      pctx.fillStyle = "rgba(200,210,230,.5)";
+      pctx.fillText("点「开始采样」累积数据", pad+6, h/2);
+      return;
+    }
+    const xs = stats.map(s=>Math.log(s.N)), ys = stats.map(s=>Math.log(s.r2));
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const X = v => pad + (v-x0)/Math.max(1e-9,(x1-x0))*(w-pad-12);
+    const Y = v => (h-pad) - (v-y0)/Math.max(1e-9,(y1-y0))*(h-pad-16);
+    // 参考线:ν=0.75 的斜率 1.5
+    pctx.strokeStyle = "rgba(255,207,107,.45)"; pctx.lineWidth = 1.4; pctx.setLineDash([5,4]);
+    pctx.beginPath();
+    pctx.moveTo(X(x0), Y(y0));
+    pctx.lineTo(X(x1), Y(y0 + 1.5*(x1-x0)));
+    pctx.stroke(); pctx.setLineDash([]);
+    // 数据点
+    pctx.fillStyle = "rgba(126,224,184,.95)";
+    for(let k=0;k<stats.length;k++){
+      pctx.beginPath(); pctx.arc(X(xs[k]), Y(ys[k]), 3, 0, 6.2832); pctx.fill();
+    }
+    // 拟合线
+    if(isFinite(nu)){
+      pctx.strokeStyle = "rgba(126,224,184,.85)"; pctx.lineWidth = 1.8;
+      const c = y0 - nu*2*x0;
+      pctx.beginPath();
+      pctx.moveTo(X(x0), Y(c + 2*nu*x0));
+      pctx.lineTo(X(x1), Y(c + 2*nu*x1));
+      pctx.stroke();
+      pctx.fillStyle = "rgba(126,224,184,.95)";
+      pctx.fillText("ν = " + nu.toFixed(3), pad+6, 16);
+    }
+  }
+
+  function drawHist(){
+    const w = hist.width, h = hist.height;
+    hctx.clearRect(0,0,w,h);
+    hctx.fillStyle = "rgba(0,0,0,.3)"; hctx.fillRect(0,0,w,h);
+    if(r2Hist.length < 8){
+      hctx.fillStyle = "rgba(200,210,230,.5)"; hctx.font = "10px ui-monospace, monospace";
+      hctx.fillText("采样后显示", 8, h/2);
+      return;
+    }
+    const mx = Math.max(...r2Hist);
+    const bins = 40, cnt = new Array(bins).fill(0);
+    for(const v of r2Hist){ let b = Math.floor(v/mx*bins); if(b>=bins) b=bins-1; cnt[b]++; }
+    const mc = Math.max(...cnt);
+    const bw = (w-16)/bins;
+    for(let b=0;b<bins;b++){
+      const bh = (cnt[b]/mc)*(h-22);
+      hctx.fillStyle = hsl(150 + b/bins*90, 80, 55);
+      hctx.fillRect(8+b*bw, h-14-bh, bw-1, bh);
+    }
+    hctx.fillStyle = "rgba(200,210,230,.8)"; hctx.font = "9px ui-monospace, monospace";
+    hctx.fillText("R² ∈ [0, " + mx.toFixed(0) + "]", 8, 12);
+  }
+
+  // 后台采样:每个帧只跑一点,避免卡 UI
+  let nu = NaN;
+  function sampleTick(){
+    if(!samplerRunning) return;
+    const budget = 6;                    // 每帧测 6 个长度点
+    for(let k=0;k<budget && samplerRunning;k++){
+      const Ns = [20, 30, 45, 60, 90, 140, 200, 300, 420, 600];
+      // 让每个 N 都累积样本:用"轮转"
+      const target = Ns[tryCount % Ns.length];
+      const m = measureR2(target, rnd, 3);
+      tryCount++;
+      if(isFinite(m.r2) && m.r2 > 0){
+        okCount++;
+        // 按 N 累积平均
+        let slot = stats.find(s => s.N === m.actualN);
+        if(!slot){ slot = { N:m.actualN, sum:0, cnt:0, r2:0 }; stats.push(slot); }
+        slot.sum += m.r2; slot.cnt++;
+        slot.r2 = slot.sum/slot.cnt;
+        samples++;
+        r2Hist.push(m.r2);
+        if(r2Hist.length > 4000) r2Hist.splice(0, 1000);
+        // 重新拟合
+        if(stats.length >= 3){
+          const xs = stats.map(s=>Math.log(s.N)), ys = stats.map(s=>Math.log(s.r2));
+          let sx=0,sy=0,sxx=0,sxy=0;
+          const n = xs.length;
+          for(let q=0;q<n;q++){ sx+=xs[q]; sy+=ys[q]; sxx+=xs[q]*xs[q]; sxy+=xs[q]*ys[q]; }
+          const den = n*sxx - sx*sx;
+          if(Math.abs(den) > 1e-9) nu = ((n*sxy - sx*sy)/den)/2;
+        }
+      }
+    }
+  }
+
+  // ---- 主循环 ----
+  let fpsAcc=0, fpsN=0, last = performance.now();
+  function frame(now){
+    const dt = (now-last)/1000; last = now;
+    // 动画推进:速度单位是「格/秒」,用累加器换成整数步 ——
+    // 原来直接拿 speed 当"每帧格数",最小档 1 就是 60 格/秒,120 格的链 2 秒画完,所以永远"太快"
+    if(speed > 0 && chains.length){
+      growAcc += speed * Math.min(0.1, dt);
+      const step = Math.floor(growAcc);
+      if(step > 0){
+        growAcc -= step;
+        for(const c of chains) c.n = Math.min(c.full.n, c.n + step);
+      }
+      if(chains.every(c => c.n >= c.full.n)){
+        holdT += dt;
+        if(holdT > 1.2) rebuild();              // 完整链看一会儿,再自动换一条(不再每帧排一次 setTimeout 制造重建风暴)
+      } else holdT = 0;
+    }
+    sampleTick();
+    drawChain(); drawPlot(); drawHist();
+
+    fpsAcc += dt; fpsN++;
+    if(fpsN >= 20){ rFps.textContent = (fpsN/fpsAcc).toFixed(0); fpsAcc=0; fpsN=0; }
+    rSamples.textContent = samples.toLocaleString();
+    const biggest = stats.length ? stats[stats.length-1] : null;
+    rNref.textContent = biggest ? biggest.N : "0";
+    rR2.textContent = biggest ? biggest.r2.toFixed(1) : "0";
+    rNu.textContent = isFinite(nu) ? nu.toFixed(4) : "—";
+    rRate.textContent = (okCount||tryCount) ? (okCount/Math.max(1,tryCount)*100).toFixed(0)+"%" : "—";
+    requestAnimationFrame(frame);
+  }
+
+  // ---- 界面 ----
+  const $ = id => document.getElementById(id);
+  const rFps=$("rFps"), rSamples=$("rSamples"), rNref=$("rNref"), rR2=$("rR2"), rNu=$("rNu"), rRate=$("rRate");
+  const modeBox = $("modeBox"), modeBtns = {};
+  Object.keys(MODES).forEach(k=>{
+    const b = document.createElement("button");
+    b.textContent = k;
+    b.onclick = ()=>{ mode = MODES[k]; rebuild(); Object.keys(modeBtns).forEach(q=>modeBtns[q].classList.toggle("on", q===k)); };
+    modeBox.appendChild(b); modeBtns[k] = b;
+  });
+  $("sN").oninput = e => { N = +e.target.value; $("vN").textContent = N; rebuild(); };
+  $("sSpeed").oninput = e => { speed = +e.target.value; $("vSpeed").textContent = speed + " 格/秒"; };
+  $("sChains").oninput = e => { chainCount = +e.target.value; $("vChains").textContent = chainCount; rebuild(); };
+  $("selView").onchange = e => { viewMode = e.target.value; };
+  $("sGrid").oninput = e => { showGrid = (+e.target.value) === 1; $("vGrid").textContent = showGrid?"开":"关"; };
+  $("bRun").onclick = ()=>{ samplerRunning = true; $("bRun").classList.add("on"); };
+  $("bStop").onclick = ()=>{ samplerRunning = false; $("bRun").classList.remove("on"); };
+  $("bReset").onclick = ()=>{ resetStats(); };
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k===" "){ e.preventDefault(); rebuild(); }
+    else if(k==="s") $("bRun").click();
+  });
+
+  modeBtns["直线偏好"].classList.add("on");
+  rebuild();
+  requestAnimationFrame(frame);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">自回避行走 · Self-Avoiding Walk</h2>
+    <p class="hp-lead">一个人在路上走，从不走回自己走过的格子。听起来像小游戏，其实是高分子物理的基石模型。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>自回避随机游走 (SAW)</b>　普通随机游走允许回到原点，位移的均方根长度 ~ √N（差得很慢）。SAW 禁止重复访问，链被迫向外扩展，均方根回转半径 &lt;R²&gt; ~ N^ν，二维时 ν = 3/4 —— 比普通游走的 1/2 大，比拉直的 1 小。这个指数由 Flory 公式给出，是真实聚合物（塑料、DNA、蛋白质）尺寸标定的基础。</p><p><b>为什么重要</b>　一根聚乙稀链有上万个单体，它们不能互相穿模（自回避）。测出 ν 就能从分子量预测材料的黏度、弹性、溶解性。高分子物理的半壁江山都从这个'不许踩自己'的规则开始。</p><p><b>Pivot 算法</b>　朴素随机生长会越来越容易被自己困死（走 N 步的成功率随 N 指数下降）。这里用的是 pivot：先在无约束的格子上随机长好一条链，然后随机挑一个节点、把整段尾巴随机旋转 90°，如果新位置没有碰撞就接受 —— 这是马尔可夫链蒙特卡罗(MCMC)里著名的'枢轴算法'，能以接近 100% 的成功率生成大尺寸 SAW 样本。</p><p><b>直方图与标度</b>　右侧的 &lt;R²&gt; ~ N^2ν 双对数图，斜率就是 2ν ≈ 1.5。每次重建都会往直方图里塞一个样本，样本多了曲线才会贴着理论直线 —— 这也是'统计物理靠采样'的直接体验。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>调 N（链长）、链数、生长速度（格/秒），点「重新生长」看新链。</li><li>视图切换：只看链 / R² 标度图 / 终点距离直方图。</li><li>「开始采样」持续累积样本；「重置统计」清空重新来。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>把 N 从 20 拉到 400，看链怎么从'弯弯曲曲的线团'变成蓬松的毛球。</li><li>采样两三千次后看双对数图的斜率是否稳定在 1.5 附近 —— 那就是 ν = 0.75 的实验证据。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>朱利亚动物园 · Julia Zoo</title>
+<style>
+  :root{
+    --bg:#07080e; --panel:rgba(18,20,30,.86); --line:rgba(255,255,255,.08);
+    --txt:#dbe0ee; --dim:#7b849c; --acc:#8fb6ff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--txt);
+    font:13px/1.55 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+    display:flex; height:100vh; overflow:hidden; user-select:none;
+  }
+  #side{
+    width:250px; flex:0 0 250px; height:100%; overflow-y:auto;
+    background:var(--panel); border-right:1px solid var(--line);
+    backdrop-filter:blur(14px); padding:16px 14px 28px;
+  }
+  #side::-webkit-scrollbar{width:8px}
+  #side::-webkit-scrollbar-thumb{background:#2a2f42; border-radius:4px}
+  h1{font-size:15px; letter-spacing:.1em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10.5px; letter-spacing:.05em; margin:3px 0 14px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; margin:15px 0 7px; text-transform:uppercase}
+  .row{display:flex; gap:6px; flex-wrap:wrap}
+  button{
+    font:inherit; font-size:11.5px; color:var(--txt); cursor:pointer;
+    background:rgba(255,255,255,.045); border:1px solid var(--line);
+    border-radius:7px; padding:6px 9px; transition:.12s;
+  }
+  button:hover{background:rgba(255,255,255,.1); border-color:rgba(143,182,255,.4)}
+  button.on{background:rgba(143,182,255,.16); border-color:rgba(143,182,255,.55); color:#cfe0ff}
+  .sw{width:30px; height:24px; border-radius:6px; padding:0; border:1px solid var(--line)}
+  .sw.on{outline:2px solid rgba(143,182,255,.7); outline-offset:1px}
+  input[type=range]{width:100%; accent-color:var(--acc); margin:2px 0 0}
+  .val{float:right; color:var(--acc); font-variant-numeric:tabular-nums}
+  .kv{display:flex; justify-content:space-between; gap:8px; color:var(--dim); font-size:11.5px; padding:2px 0}
+  .kv b{color:var(--txt); font-weight:500; font-variant-numeric:tabular-nums}
+  .note{color:var(--dim); font-size:11px; line-height:1.65; margin-top:10px;
+        border-top:1px solid var(--line); padding-top:9px}
+  #stage{position:relative; flex:1; min-width:0; overflow:hidden}
+  #cv{display:block; width:100%; height:100%}
+  /* Julia 预览窗(现在装的是曼德博图鉴) */
+  #jbox{
+    position:absolute; right:14px; bottom:14px; width:212px;
+    background:rgba(10,12,20,.86); border:1px solid var(--line); border-radius:12px;
+    overflow:hidden; backdrop-filter:blur(10px); box-shadow:0 14px 40px rgba(0,0,0,.5);
+    cursor:pointer; transition:border-color .16s, box-shadow .16s, transform .16s;
+  }
+  #jbox:hover{border-color:var(--acc); box-shadow:0 16px 44px rgba(0,0,0,.6), 0 0 0 1px rgba(126,224,192,.35)}
+  #jbox:hover #jnote{color:var(--acc); opacity:1}
+  #jcv{display:block; width:210px; height:160px}
+  #jbar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:5px 8px; font-size:10.5px; color:var(--dim); letter-spacing:.04em;
+    border-top:1px solid var(--line);
+  }
+  #jbar b{color:var(--acc); font-weight:500}
+  #jbar span{white-space:nowrap}
+  #jnote{opacity:.8}
+  #hud{
+    position:absolute; left:14px; bottom:14px; color:var(--dim); font-size:11px;
+    background:rgba(10,12,20,.7); border:1px solid var(--line); border-radius:9px;
+    padding:6px 10px; line-height:1.7; pointer-events:none; font-variant-numeric:tabular-nums;
+  }
+  #hud b{color:var(--txt); font-weight:500}
+  #busy{
+    position:absolute; right:14px; top:14px; font-size:10.5px; color:var(--dim);
+    background:rgba(10,12,20,.7); border:1px solid var(--line); border-radius:8px; padding:4px 9px;
+    opacity:0; transition:opacity .2s;
+  }
+  #busy.on{opacity:1}
+  /* 轻提示:点击右下角预览、导出 PNG 之类给个明确反馈 */
+  #toast{
+    position:absolute; left:50%; top:16px; transform:translate(-50%,-8px);
+    font-size:12px; color:var(--acc); background:rgba(10,16,22,.9);
+    border:1px solid rgba(126,224,192,.45); border-radius:999px; padding:6px 14px;
+    opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;
+    box-shadow:0 10px 30px rgba(0,0,0,.45); max-width:80vw; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  #toast.on{opacity:1; transform:translate(-50%,0)}
+  @media (max-width:820px){
+    #side{width:200px; flex-basis:200px}
+    #jbox{width:150px} #jcv{width:148px; height:112px}
+  }
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>朱利亚<span>动物园</span></h1>
+  <div class="sub">z ↦ z² + c ・ 复动力系统</div>
+
+  <div class="grp">视图</div>
+  <div class="row">
+    <button id="bM" class="on">曼德博 M</button>
+    <button id="bJ">朱利亚 J</button>
+    <button id="bTour">自动漫游</button>
+  </div>
+
+  <div class="grp">迭代上限 <span class="val" id="vIter">220</span></div>
+  <input type="range" id="sIter" min="40" max="1200" step="20" value="220">
+
+  <div class="grp">配色</div>
+  <div class="row" id="pals"></div>
+
+  <div class="grp">操作</div>
+  <div class="row">
+    <button id="bReset">重置视图</button>
+    <button id="bEdge">周期边界</button>
+    <button id="bSave">保存 PNG</button>
+  </div>
+
+  <div class="grp">读数</div>
+  <div class="kv"><span>光标 c</span><b id="rC">—</b></div>
+  <div class="kv"><span>焦距</span><b id="rZoom">3.20</b></div>
+  <div class="kv"><span>逃逸迭代</span><b id="rMu">—</b></div>
+  <div class="kv"><span>解析判定</span><b id="rAnalytic">—</b></div>
+  <div class="kv"><span>吸引周期</span><b id="rPeriod">—</b></div>
+  <div class="kv"><span>自检</span><b id="rSelf">—</b></div>
+
+  <div class="note">
+    主屏是当前 c 的<b>朱利亚集</b>;右下角那张小图是<b>曼德博图鉴</b>本身,黄点就是 c 现在的位置。<br>
+    <b>按住图鉴</b>取样(主屏立刻换成那只动物),<b>松开复位</b>;双击图鉴把当前这只固定下来。<br>
+    主屏:滚轮缩放 · 拖动平移 · 双击切曼德博全图。<br>
+    快捷键：<b>M</b>/<b>J</b>/<b>A</b> 视图 · <b>R</b> 重置 · <b>P</b> 换色 · <b>B</b> 边界 · <b>+/-</b> 迭代
+  </div>
+</aside>
+
+<main id="stage">
+  <canvas id="cv"></canvas>
+  <div id="busy">渲染中…</div>
+  <div id="toast"></div>
+  <div id="jbox" title="按住这里取样:点住图鉴上的任意位置,主屏的朱利亚集立刻变成那一只;松开自动复位">
+    <canvas id="jcv"></canvas>
+    <div id="jbar"><span>图鉴 · <b id="jc">0</b></span><span id="jnote">按住取样</span></div>
+  </div>
+  <div id="hud">
+    <div id="hLine1">c = <b>0</b></div>
+    <div id="hLine2">拖动平移 · 滚轮缩放</div>
+  </div>
+</main>
+
+<script>
+"use strict";
+/* ============================================================
+   朱利亚动物园
+   曼德博集合是复平面上的一张"动物图鉴":每个点 c 都是一只动物,
+   它的形状由同一个迭代 z ↦ z² + c 完全决定。
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const INV_LN2 = 1.4426950408889634;
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+
+// ---------------- 调色板 ----------------
+// 每条是一个"单调渐变":从远处(逃逸很快)的暗色,一路走到边界(逃逸很慢)的亮色。
+// 早先用的是纯余弦调色(a + b·cos),四个通道的均值都在 0.5 附近,
+// 结果整幅图是一片泛白的高调色,细节全糊了。这里改成手工给色标。
+const PALETTES = [
+  { name:"深海", in:[4,7,13], stops:[[6,10,24],[28,64,120],[96,172,214],[236,248,255]] },
+  { name:"熔岩", in:[10,4,3], stops:[[18,6,6],[112,30,14],[242,120,30],[255,236,190]] },
+  { name:"苔原", in:[6,12,8], stops:[[10,22,14],[40,92,62],[128,190,120],[242,252,222]] },
+  { name:"铜版", in:[12,9,6], stops:[[24,16,10],[108,70,30],[212,162,92],[255,246,226]] }
+];
+let palIdx = 0;
+const PAL_LUT = [];      // 每套调色板预生成 512 级查表,渲染时只做一次查表
+
+// ---------------- 迭代核心 ----------------
+// 返回 -1 表示不逃逸(视为集合内部),否则返回"连续化"的逃逸迭代数
+function escapeCount(zr, zi, cr, ci, maxIter){
+  let zr2 = zr*zr, zi2 = zi*zi, i = 0;
+  while(i < maxIter && zr2 + zi2 <= 4.0){
+    zi = 2*zr*zi + ci;
+    zr = zr2 - zi2 + cr;
+    zr2 = zr*zr; zi2 = zi*zi;
+    i++;
+  }
+  if(i >= maxIter) return -1;
+  const lz = 0.5*Math.log(zr2 + zi2);          // log|z|
+  if(!(lz > 0)) return i;
+  return i + 1 - Math.log(lz)*INV_LN2;         // mu = n+1-log2(log|z|)
+}
+
+// 主心形 / 周期2 圆盘 的解析判据(精确,不用迭代)
+function inCardioid(cx, cy){
+  const x = cx - 0.25, q = x*x + cy*cy;
+  return q*(q + x) <= 0.25*cy*cy;
+}
+function inPeriod2(cx, cy){
+  const x = cx + 1;
+  return x*x + cy*cy <= 0.0625;
+}
+
+// 吸引周期:跑一段轨道,找最小的 p 使 z_{k} ≈ z_{k-p}
+function attractingPeriod(cx, cy){
+  const N = 600, xs = new Float64Array(N), ys = new Float64Array(N);
+  let zr = 0, zi = 0;
+  for(let i = 0; i < N; i++){
+    const zr2 = zr*zr, zi2 = zi*zi;
+    if(zr2 + zi2 > 16) return 0;               // 逃逸:不属于 M
+    zi = 2*zr*zi + cy;
+    zr = zr2 - zi2 + cx;
+    xs[i] = zr; ys[i] = zi;
+  }
+  for(let p = 1; p <= 240; p++){
+    let ok = true;
+    for(let k = N - p; k < N; k++){
+      const dx = xs[k] - xs[k-p], dy = ys[k] - ys[k-p];
+      if(dx*dx + dy*dy > 1e-12){ ok = false; break; }
+    }
+    if(ok) return p;
+  }
+  return 0;                                    // 没探测到(混沌吸附子或接近边界)
+}
+
+// ---------------- 画布 ----------------
+const cv = $("cv"), ctx = cv.getContext("2d", { alpha:false });
+const jcv = $("jcv"), jctx = jcv.getContext("2d", { alpha:false });
+let W = 0, H = 0, DPR = 1;
+
+const view = { cx:-0.6, cy:0, scale:0.004 };   // scale = 每像素的复数步长
+const HOME = { cx:-0.6, cy:0, scale:0.004 };
+
+let mode = "m";            // "m" 曼德博 | "j" 朱利亚
+let maxIter = 220;
+let showEdge = false;
+let touring = false;
+
+let lockC = [0, 0];        // 当前锁定的 c
+let hoverC = [0, 0];       // 鼠标指示的 c
+
+// 渲染任务(分块推进,不阻塞交互)
+let job = null;
+
+function sizeUp(){
+  const rect = cv.getBoundingClientRect();
+  DPR = Math.min(1.25, window.devicePixelRatio || 1);
+  const w = Math.max(320, Math.round(rect.width  * DPR));
+  const h = Math.max(240, Math.round(rect.height * DPR));
+  if(w === W && h === H) return;
+  W = cv.width = w; H = cv.height = h;
+  // 保持视角:换画布大小时按宽度重算 scale
+  requestRender();
+}
+function viewSpan(){ return view.scale * W; }
+
+function palFor(iter){
+  // 每次渲染按当前迭代上限重新归一化:同一个调色板在不同缩放下都能用满整条渐变
+  const p = PALETTES[palIdx];
+  return { name:p.name, in:p.in, lut:p.lut, logmax:Math.log(1 + Math.max(20, iter)) };
+}
+
+function requestRender(){
+  // 漫游时用半分辨率 + 压低的迭代上限:要的是"会动的动画",不是一张完美的静图
+  const lowQ = touring && mode === "j";
+  const rw = lowQ ? Math.max(1, W >> 1) : W;
+  const rh = lowQ ? Math.max(1, H >> 1) : H;
+  const img = ctx.createImageData(rw, rh);
+  const it = lowQ ? Math.min(maxIter, 140) : maxIter;
+  job = {
+    y: 0, img, data: img.data, rw, rh,
+    cx: view.cx, cy: view.cy, sc: view.scale * (lowQ ? 2 : 1),
+    cr: lockC[0], ci: lockC[1],
+    iter: it, kind: mode, pal: palFor(it)
+  };
+  $("busy").classList.add("on");
+}
+
+// 生成 512 级查表:把 log(1+mu) 归一化到 0..1,再在色标之间插值
+(function buildLuts(){
+  const LOGMAX = Math.log(1 + 1400);        // 迭代上限最大 1200,留一点余量
+  for(const p of PALETTES){
+    const lut = new Uint8Array(512*3);
+    const n = p.stops.length;
+    for(let k = 0; k < 512; k++){
+      const s = k / 511;
+      const seg = s * (n - 1);
+      const i0 = Math.min(n - 2, Math.floor(seg)), f = seg - i0;
+      const A = p.stops[i0], B = p.stops[i0 + 1];
+      lut[k*3]   = Math.round(A[0] + (B[0] - A[0]) * f);
+      lut[k*3+1] = Math.round(A[1] + (B[1] - A[1]) * f);
+      lut[k*3+2] = Math.round(A[2] + (B[2] - A[2]) * f);
+    }
+    p.lut = lut; p.logmax = LOGMAX;
+  }
+})();
+
+function colorPixel(data, o, mu, pal){
+  if(mu < 0){ data[o] = pal.in[0]; data[o+1] = pal.in[1]; data[o+2] = pal.in[2]; data[o+3] = 255; return; }
+  const lut = pal.lut, L = lut.length;
+  let k = (Math.log(1 + mu) / pal.logmax * 511) | 0;
+  if(k < 0) k = 0; else if(k > 511) k = 511;
+  const j = k * 3;
+  data[o]   = lut[j];
+  data[o+1] = lut[j+1];
+  data[o+2] = lut[j+2];
+  data[o+3] = 255;
+}
+
+// 一次推进若干行(带时间预算)
+let lowCanvas = null, lowCtx = null;   // 漫游时的半分辨率缓冲
+function pumpJob(budgetMs){
+  if(!job) return false;
+  const t0 = performance.now();
+  const { data, cx, cy, sc, cr, ci, iter, kind, pal, rw, rh } = job;
+  const halfW = rw/2, halfH = rh/2;
+  while(job.y < rh){
+    const py = job.y;
+    const y0 = cy - (py - halfH)*sc;
+    let o = py*rw*4;
+    for(let px = 0; px < rw; px++){
+      const x0 = cx + (px - halfW)*sc;
+      const mu = (kind === "m") ? escapeCount(0, 0, x0, y0, iter) : escapeCount(x0, y0, cr, ci, iter);
+      colorPixel(data, o, mu, pal);
+      o += 4;
+    }
+    job.y++;
+    if((job.y & 7) === 0 && performance.now() - t0 > budgetMs) break;
+  }
+  if(job.y >= rh){
+    if(rw !== W || rh !== H){
+      // 半分辨率渲染 → 放大铺满:像素少 4 倍,才画得动"动画"
+      if(!lowCanvas){ lowCanvas = document.createElement("canvas"); lowCtx = lowCanvas.getContext("2d"); }
+      lowCanvas.width = rw; lowCanvas.height = rh;
+      lowCtx.putImageData(job.img, 0, 0);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(lowCanvas, 0, 0, rw, rh, 0, 0, W, H);
+    } else {
+      ctx.putImageData(job.img, 0, 0);
+    }
+    job = null;
+    $("busy").classList.remove("on");
+    if(showEdge) drawEdge();
+    drawMarker();
+    return true;
+  }
+  return false;
+}
+
+// ---------------- 右下角图鉴:曼德博全集 + 跟着 c 走的光标 ----------------
+// 主屏放"动画"(朱利亚集),右下角这张小图放"图鉴"本身:固定全集视野 + 一个黄点。
+// 按住小图 = 在动画上实时取样,松开自动复位。
+const MAP_VIEW = { cx: -0.62, cy: 0, span: 3.35 };
+let mapJob = null, mapBase = null;
+
+function mapScale(){ return MAP_VIEW.span / Math.max(1, jcv.width); }
+function mapToPx(cx, cy){
+  const sc = mapScale(), w = jcv.width, h = jcv.height;
+  return [ (cx - MAP_VIEW.cx)/sc + w/2, -(cy - MAP_VIEW.cy)/sc + h/2 ];
+}
+function pxToMap(mx, my){
+  const sc = mapScale(), w = jcv.width, h = jcv.height;
+  return [ MAP_VIEW.cx + (mx - w/2)*sc, MAP_VIEW.cy - (my - h/2)*sc ];
+}
+
+function requestMap(){
+  if(!jctx) return;
+  const w = jcv.width, h = jcv.height;
+  const img = jctx.createImageData(w, h);
+  const it = Math.min(200, Math.max(50, Math.round(maxIter*0.6)));
+  mapJob = { y:0, img, data:img.data, w, h, sc: mapScale(), iter: it, pal: palFor(it) };
+}
+function pumpMap(budgetMs){
+  if(!mapJob) return false;
+  const t0 = performance.now();
+  const { data, w, h, sc, iter, pal } = mapJob;
+  const halfW = w/2, halfH = h/2, cx0 = MAP_VIEW.cx, cy0 = MAP_VIEW.cy;
+  while(mapJob.y < h){
+    const py = mapJob.y;
+    const y0 = cy0 - (py - halfH)*sc;
+    let o = py*w*4;
+    for(let px = 0; px < w; px++){
+      const x0 = cx0 + (px - halfW)*sc;
+      // z₀=0,c=这个点 —— 曼德博集的定义,和主屏的朱利亚集正好是"图鉴与动物"
+      const mu = escapeCount(0, 0, x0, y0, iter);
+      colorPixel(data, o, mu, pal);
+      o += 4;
+    }
+    mapJob.y++;
+    if((mapJob.y & 3) === 0 && performance.now() - t0 > budgetMs) break;
+  }
+  if(mapJob.y >= h){ mapBase = mapJob.img; mapJob = null; paintMap(); return true; }
+  return false;
+}
+// 底图 + 光标(十字 + 圈):c 一动只重画这一层,不用重算整张图
+function paintMap(){
+  if(!jctx || !mapBase) return;
+  jctx.putImageData(mapBase, 0, 0);
+  const [x, y] = mapToPx(lockC[0], lockC[1]);
+  const w = jcv.width, h = jcv.height;
+  jctx.save();
+  jctx.strokeStyle = "rgba(255,209,102,.22)"; jctx.lineWidth = Math.max(1, DPR*0.8);
+  jctx.beginPath(); jctx.moveTo(x, 0); jctx.lineTo(x, h);
+  jctx.moveTo(0, y); jctx.lineTo(w, y); jctx.stroke();
+  jctx.strokeStyle = "rgba(255,209,102,.95)"; jctx.lineWidth = Math.max(1.6, DPR*1.6);
+  jctx.beginPath(); jctx.arc(x, y, Math.max(5, 5*DPR), 0, Math.PI*2); jctx.stroke();
+  jctx.fillStyle = "#ffd166";
+  jctx.beginPath(); jctx.arc(x, y, Math.max(2, 2*DPR), 0, Math.PI*2); jctx.fill();
+  jctx.restore();
+}
+
+// ---------------- 叠加层:周期边界 ----------------
+function drawEdge(){
+  const toPx = (cx, cy) => [ (cx - view.cx)/view.scale + W/2, -(cy - view.cy)/view.scale + H/2 ];
+  ctx.save();
+  ctx.lineWidth = Math.max(1, DPR);
+  ctx.strokeStyle = "rgba(255,255,255,.55)";
+  // 主心形:c = e^{iθ}/2 - e^{2iθ}/4
+  ctx.beginPath();
+  for(let i = 0; i <= 240; i++){
+    const th = i/240 * Math.PI*2;
+    const cx = Math.cos(th)/2 - Math.cos(2*th)/4;
+    const cy = Math.sin(th)/2 - Math.sin(2*th)/4;
+    const [x, y] = toPx(cx, cy);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+  // 周期 2 圆盘:|c+1| = 1/4
+  ctx.beginPath();
+  const [bx, by] = toPx(-1, 0);
+  ctx.arc(bx, by, 0.25/view.scale, 0, Math.PI*2);
+  ctx.stroke();
+  // 三叶草:周期 3 的圆盘中心
+  ctx.fillStyle = "rgba(143,182,255,.9)";
+  for(const [cx, cy] of [[-0.12256,0.74486],[-1.75488,0],[0.28227,0.53052]]){
+    const [x, y] = toPx(cx, cy);
+    ctx.beginPath(); ctx.arc(x, y, 2.2*DPR, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 轻提示
+let toastTimer = 0;
+function toast(msg){
+  const el = $("toast");
+  if(!el) return;
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 2600);
+}
+
+// 锁定点标记:单击之后主画布上要有个"我确实点到了"的即时反馈
+function drawMarker(){
+  if(mode !== "m") return;
+  const px = (lockC[0] - view.cx)/view.scale + W/2;
+  const py = -(lockC[1] - view.cy)/view.scale + H/2;
+  if(!isFinite(px) || !isFinite(py)) return;
+  if(px < -30 || px > W+30 || py < -30 || py > H+30) return;
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  const r = Math.max(7, 7*DPR);
+  ctx.strokeStyle = "rgba(255,209,102,.95)"; ctx.lineWidth = Math.max(1.4, 1.4*DPR);
+  ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,209,102,.30)";
+  ctx.beginPath(); ctx.arc(px, py, r*2.1, 0, Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px - r*1.5, py); ctx.lineTo(px - r*0.6, py);
+  ctx.moveTo(px + r*0.6, py); ctx.lineTo(px + r*1.5, py); ctx.stroke();
+  ctx.restore();
+}
+
+// ---------------- 读数 ----------------
+function fmt(z){ return z.toFixed(4); }
+function updateReadouts(c, noteMu){
+  const [cx, cy] = c;
+  $("rC").textContent = "(" + fmt(cx) + (cy < 0 ? " − " : " + ") + fmt(Math.abs(cy)) + "i)";
+  $("rZoom").textContent = (view.scale * W).toFixed(4);
+  const mu = noteMu === undefined ? escapeCount(0, 0, cx, cy, Math.min(1200, maxIter)) : noteMu;
+  $("rMu").textContent = mu < 0 ? "不逃逸 (∈ M)" : mu.toFixed(2);
+  const inCard = inCardioid(cx, cy), inP2 = inPeriod2(cx, cy);
+  $("rAnalytic").textContent = inCard ? "主心形内" : inP2 ? "周期2圆盘内" : (mu < 0 ? "集合内(其他分量)" : "集合外");
+  const p = attractingPeriod(cx, cy);
+  $("rPeriod").textContent = p > 0 ? ("周期 " + p) : (mu < 0 ? "未锁相(混沌/近边界)" : "—");
+  $("hLine1").innerHTML = "c = <b>" + fmt(cx) + (cy < 0 ? " − " : " + ") + fmt(Math.abs(cy)) + "i</b>";
+  const jcEl = $("jc");
+  // 图鉴那小条太窄,只留 3 位小数(完整精度在左栏读数里)
+  if(jcEl) jcEl.textContent = cx.toFixed(3) + (cy < 0 ? "−" : "+") + Math.abs(cy).toFixed(3) + "i";
+  return mu;
+}
+
+// ---------------- 交互 ----------------
+let dragging = false, dragged = false, lastX = 0, lastY = 0;
+
+cv.addEventListener("pointerdown", e => {
+  dragging = true; dragged = false;
+  lastX = e.clientX; lastY = e.clientY;
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", e => {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (W/rect.width);
+  const my = (e.clientY - rect.top) * (H/rect.height);
+  const cxv = view.cx + (mx - W/2)*view.scale;
+  const cyv = view.cy - (my - H/2)*view.scale;
+  hoverC = [cxv, cyv];
+  if(dragging){
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    if(Math.abs(dx) + Math.abs(dy) > 3) dragged = true;
+    view.cx -= dx * (view.scale * W/rect.width);
+    view.cy += dy * (view.scale * H/rect.height);
+    lastX = e.clientX; lastY = e.clientY;
+    if(mode === "m") requestRender();
+  }
+  if(mode === "m"){
+    $("hLine2").textContent = "悬停 " + fmt(cxv) + (cyv<0?"−":"+") + fmt(Math.abs(cyv)) + "i · 单击锁定";
+  } else {
+    $("hLine2").textContent = "滚动缩放 · 拖动平移 · 点「曼德博 M」回图鉴";
+  }
+});
+cv.addEventListener("pointerup", e => {
+  dragging = false;
+  // 只有看曼德博时才用主屏点击来锁 c;朱利亚视图里点击不改变动物
+  if(!dragged && mode === "m"){
+    lockC = [hoverC[0], hoverC[1]];
+    updateReadouts(lockC);
+    paintMap();
+  }
+});
+cv.addEventListener("pointerleave", () => { dragging = false; });
+cv.addEventListener("dblclick", () => {
+  if(mode === "m"){ lockC = [hoverC[0], hoverC[1]]; setMode("j"); }
+  else setMode("m");
+});
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (W/rect.width);
+  const my = (e.clientY - rect.top) * (H/rect.height);
+  const wx = view.cx + (mx - W/2)*view.scale;
+  const wy = view.cy - (my - H/2)*view.scale;
+  const f = e.deltaY > 0 ? 1.16 : 1/1.16;
+  view.scale = Math.max(1e-13, Math.min(0.05, view.scale * f));
+  view.cx = wx - (mx - W/2)*view.scale;
+  view.cy = wy + (my - H/2)*view.scale;
+  requestRender();
+}, { passive:false });
+
+function setMode(m){
+  mode = m;
+  $("bM").classList.toggle("on", m === "m");
+  $("bJ").classList.toggle("on", m === "j");
+  // 底部提示跟着视图走:J 视图里得告诉人怎么回去
+  const h2 = $("hLine2");
+  if(h2) h2.textContent = m === "j"
+    ? "这是 c 的朱利亚集 · 滚轮缩放 · 拖动平移 · 点「曼德博 M」回图鉴"
+    : "拖动平移 · 滚轮缩放 · 单击锁定 c";
+  if(m === "j"){
+    view.cx = 0; view.cy = 0;
+    view.scale = 3.6 / Math.max(1, W);
+  } else {
+    view.cx = HOME.cx; view.cy = HOME.cy; view.scale = 3.6 / Math.max(1, W);
+  }
+  requestRender();
+  paintMap();
+}
+
+$("bM").onclick = () => setMode("m");
+$("bJ").onclick = () => setMode("j");
+
+// ---------------- 右下角图鉴:按住取样,松开复位 ----------------
+let mapPress = false, mapSaved = null;
+function mapAt(e){
+  const r = jcv.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * (jcv.width / Math.max(1, r.width));
+  const my = (e.clientY - r.top) * (jcv.height / Math.max(1, r.height));
+  return pxToMap(mx, my);
+}
+function sampleMap(e){
+  const [cx, cy] = mapAt(e);
+  lockC = [cx, cy];
+  updateReadouts(lockC);
+  paintMap();
+  const note = $("jnote");
+  if(note) note.textContent = "取样中 · 松开复位";
+  if(mode !== "j") setMode("j");     // 主屏要立刻变成这只动物
+  else requestRender();
+}
+const jbox = $("jbox");
+jbox.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  mapPress = true;
+  mapSaved = [lockC[0], lockC[1]];   // 记住按下去之前的 c,松手回来
+  sampleMap(e);
+  try{ jbox.setPointerCapture(e.pointerId); }catch(_){}
+});
+jbox.addEventListener("pointermove", e => { if(mapPress) sampleMap(e); });
+function endPress(){
+  if(!mapPress) return;
+  mapPress = false;
+  if(mapSaved){ lockC = [mapSaved[0], mapSaved[1]]; mapSaved = null; }
+  updateReadouts(lockC);
+  paintMap();
+  requestRender();
+  const note = $("jnote");
+  if(note) note.textContent = "按住取样";
+}
+jbox.addEventListener("pointerup", endPress);
+jbox.addEventListener("pointercancel", endPress);
+jbox.addEventListener("pointerleave", () => { if(mapPress) endPress(); });
+// 双击图鉴 = 把当前这只固定下来(不再复位)
+jbox.addEventListener("dblclick", e => {
+  const [cx, cy] = mapAt(e);
+  lockC = [cx, cy];
+  mapSaved = null;
+  touring = false; $("bTour").classList.remove("on");
+  updateReadouts(lockC);
+  paintMap();
+  setMode("j");
+  toast("已固定 c = " + fmt(cx) + (cy < 0 ? "−" : "+") + fmt(Math.abs(cy)) + "i");
+});
+$("bTour").onclick = () => {
+  touring = !touring;
+  $("bTour").classList.toggle("on", touring);
+  if(touring) setMode("j");
+};
+$("bReset").onclick = () => {
+  view.cx = HOME.cx; view.cy = HOME.cy; view.scale = 3.6/Math.max(1, W);
+  setMode(mode);
+};
+$("bEdge").onclick = () => {
+  showEdge = !showEdge;
+  $("bEdge").classList.toggle("on", showEdge);
+  requestRender();
+};
+$("bSave").onclick = () => {
+  const a = document.createElement("a");
+  a.download = (mode === "m" ? "mandelbrot" : "julia") + "_" + Date.now() + ".png";
+  a.href = cv.toDataURL("image/png");
+  a.click();
+  toast("已导出 PNG");
+};
+$("sIter").oninput = e => {
+  maxIter = +e.target.value;
+  $("vIter").textContent = maxIter;
+  requestRender();
+  requestMap();
+};
+
+// 调色板按钮
+PALETTES.forEach((p, i) => {
+  const b = document.createElement("button");
+  b.className = "sw" + (i === 0 ? " on" : "");
+  b.title = p.name;
+  const n = p.stops.length;
+  const g = "linear-gradient(135deg," + p.stops.map((s, k) =>
+    `rgb(${s[0]},${s[1]},${s[2]}) ${Math.round(k/(n-1)*100)}%`).join(",") + ")";
+  b.style.background = g;
+  b.onclick = () => {
+    palIdx = i;
+    [...$("pals").children].forEach((c, k) => c.classList.toggle("on", k === i));
+    requestRender();
+    requestMap();          // 图鉴也跟着换色,两屏才是同一套审美
+  };
+  $("pals").appendChild(b);
+});
+
+addEventListener("keydown", e => {
+  const k = (e.key || "").toLowerCase();
+  if(e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+  if(k === "m") setMode("m");
+  else if(k === "j") setMode("j");
+  else if(k === "a") $("bTour").click();
+  else if(k === "r") $("bReset").click();
+  else if(k === "p"){
+    palIdx = (palIdx + 1) % PALETTES.length;
+    [...$("pals").children].forEach((c, i) => c.classList.toggle("on", i === palIdx));
+    requestRender();
+    requestMap();
+  }
+  else if(k === "b") $("bEdge").click();
+  else if(k === "+" || k === "="){
+    maxIter = Math.min(1200, maxIter + 80); $("sIter").value = maxIter; $("vIter").textContent = maxIter; requestRender();
+  }
+  else if(k === "-" || k === "_"){
+    maxIter = Math.max(40, maxIter - 80); $("sIter").value = maxIter; $("vIter").textContent = maxIter; requestRender();
+  }
+});
+
+addEventListener("resize", () => sizeUp());
+
+// ---------------- 自检(把数学写在断言里) ----------------
+function selfCheck(){
+  const r = [];
+  // 1. c=0:轨道停在 0,属于 M
+  r.push(escapeCount(0,0,0,0,200) < 0 && inCardioid(0,0));
+  // 2. c=1:几步之内逃逸,且不在主心形内
+  const e1 = escapeCount(0,0,1,0,200);
+  r.push(e1 > 0 && e1 < 20 && !inCardioid(1,0));
+  // 3. |c|>2 ⇒ 必逃逸(这是 M 的定义边界结论:逃逸半径 2)
+  r.push(escapeCount(0,0,2.5,0,200) > 0 && escapeCount(0,0,0,2.5,200) > 0);
+  // 4. 周期 2 圆盘内 c=-1 → 吸引周期正好 2
+  r.push(inPeriod2(-1,0) && attractingPeriod(-1,0) === 2);
+  // 5. 主心形内的 c=-0.5 → 吸引周期 1
+  r.push(inCardioid(-0.5,0) && attractingPeriod(-0.5,0) === 1);
+  // 6. 周期 3 岛的中心 → 吸引周期 3
+  r.push(attractingPeriod(-0.12256,0.74486) === 3);
+  const pass = r.filter(Boolean).length;
+  // 不显示"几项通过"这种数字:过了就说通过,没过指出第几条不成立
+  const bad = r.indexOf(false);
+  $("rSelf").textContent = pass === r.length ? "通过" : ("第 " + (bad + 1) + " 条不成立");
+  $("rSelf").style.color = pass === r.length ? "#7ee0c0" : "#ff8a8a";
+  return { pass, total: r.length, detail: r };
+}
+
+// ---------------- 主循环 ----------------
+let tourT = 0, tourClock = 0;
+function loop(now){
+  // 主画布:每帧最多花 ~14ms
+  pumpJob(14);
+  // 右下角图鉴:每帧最多花 ~7ms(只在重新请求时才有活)
+  pumpMap(7);
+
+  // 自动漫游:让 c 沿一条闭曲线在复平面上走,主屏的朱利亚集随之变形,
+  // 右下角图鉴上的黄点实时跟着挪位置
+  if(touring && !mapPress){
+    // 漫游时主屏要重算整张图,比小预览贵得多:等上一张画完再换下一只,
+    // 间隔也放宽到 260ms,否则会一直卡在"渲染中"
+    if(now - tourClock > 180 && !job){
+      tourClock = now;
+      tourT += 0.06;
+      // 绕着主心形外沿走一圈:一会儿钻进集合里(朱利亚集是胖团子),
+      // 一会儿擦出去(变成树枝/兔子的形状) —— 这样才看得出"c 决定长相"
+      const cx = -0.45 + 0.38*Math.cos(tourT);
+      const cy = 0.38*Math.sin(tourT) + 0.05*Math.sin(tourT*2.7);
+      lockC = [cx, cy];
+      updateReadouts(lockC);
+      paintMap();
+      requestRender();
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+// ---------------- 启动 ----------------
+function boot(){
+  // 图鉴画布尺寸
+  const r = jcv.getBoundingClientRect();
+  jcv.width = Math.max(120, Math.round(r.width * DPR));
+  jcv.height = Math.max(90, Math.round(r.height * DPR));
+  sizeUp();
+  setMode("j");            // 主屏 = 会动的朱利亚集
+  requestMap();            // 右下角 = 曼德博图鉴
+  updateReadouts(lockC);
+  selfCheck();
+  touring = true;          // 一进来就在漫游
+  $("bTour").classList.add("on");
+  requestAnimationFrame(loop);
+}
+
+// 先跑自检(不依赖画布),再启动渲染
+globalThis.__zoo = {
+  escapeCount, attractingPeriod, inCardioid, inPeriod2, selfCheck,
+  get view(){ return view }, get mode(){ return mode },
+  get lockC(){ return lockC }, get W(){ return W }, get H(){ return H },
+  get jobPending(){ return !!job }, get mapPending(){ return !!mapJob },
+  get palette(){ return palFor(maxIter) },
+  mapToPx, pxToMap,
+  setMode, setIter: v => { maxIter = v; requestRender(); requestMap(); },
+  pump: (ms) => pumpJob(ms), pumpMap: (ms) => pumpMap(ms)
+};
+
+if(typeof document !== "undefined" && document.getElementById("cv")) boot();
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:196px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:186px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">朱利亚动物园 · Julia Zoo</h2>
+    <p class="hp-lead">曼德博集合不是一张壁纸，而是一张图鉴：复平面上每个点 c 代表一个不同的动力系统 z ↦ z² + c，点一下就能看见它对应的那只“动物”。</p>
+    <section class="hp-s"><h3>这个页面在玩什么</h3><p>曼德博集合 M 是复平面上那些“轨道不逃向无穷”的 c 的集合。每个像素算一次：从 z = 0 出发反复做 z ← z² + c，如果几百步之后 |z| 还很小，这个 c 就属于集合 —— 右下角那张小图里那片黑色。</p><p>对每个 c，同一套迭代还定义了另一个图形：朱利亚集 J(c)，它是“所有起点里轨道不发散的那些点”。M 是参数的世界，J 是状态的世界 —— 主屏放的就是当前 c 的 J(c)。</p><p>它们之间的桥：c 在 M 里时，J(c) 是一条连通的曲线；c 不在 M 里时，J(c) 碎成无数尘埃（康托集）。所以按住图鉴慢慢移动，主屏的形状就在“一整条”和“飞散的尘埃”之间反复切换。</p></section>
+    <section class="hp-s"><h3>背后的数学</h3><p><b>复数迭代与逃逸</b>　z ↦ z² + c 是最简单的非线性多项式。复数乘法本身就是“旋转 + 缩放”，所以每一步都在把身体转一下、拉一下。一旦 |z| &gt; 2 就必然发散（因为 |z²| = |z|²，增长比线性快得多）—— 2 就是逃逸半径，而跑出去的步数 n 就是“跑得多快”。</p><p><b>曼德博 ⊥ 朱利亚：一组对偶</b>　曼德博固定起点 z₀ = 0、变化参数 c（参数空间）；朱利亚固定 c、变化起点 z₀（状态空间）。同一个公式，两种切法 —— 这是复动力系统里最核心的视角切换。</p><p><b>连通性二分定理</b>　Douady 与 Hubbard 证明：J(c) 连通 ⟺ c ∈ M。这不是画出来的巧合，是可证明的拓扑结论（Fatou–Julia 理论）。换句话说，M 是“所有连通世界”的参数地图 —— 图上每一处黑色，都对应一整块不会碎掉的宇宙。</p><p><b>心形、圆盘与周期岛</b>　M 内部由“双曲分量”填满：主心形对应吸引不动点（周期 1），边界公式是 c = e^{iθ}/2 − e^{2iθ}/4；左边那个小圆盘是周期 2 的分量 |c+1| = 1/4；再往外是周期 3、4、5…的小岛，按周期递增排列，而且图案自相似。打开“周期边界”就能看见它们。</p><p><b>光滑染色 = 等势线</b>　直接按迭代次数上色会有一条条色带。用连续化的 μ = n + 1 − log₂ log|z| 就得到平滑过渡：它实际上是外部势函数 log|zₙ|/2ⁿ 的等值线。所以那片颜色的每一道弧，都是一条等势线。</p><p><b>边界维数 = 2，但面积 = 0</b>　Shishikura 在 1991 年证明 M 边界的豪斯多夫维数恰好是 2：它“填满”了平面的每一个粗糙角落，可面积却是零。这就是它怎么放大都有新细节的原因 —— 不是像素不够，是结构真的无限深。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>主屏是当前 c 的朱利亚集；右下角的小图是曼德博图鉴本身，黄点就是 c 的位置。<b>按住</b>图鉴取样（主屏立刻变成那只动物），<b>松开</b>自动复位；<b>双击</b>图鉴把当前这只固定下来。</li><li>主屏：滚轮缩放、拖动平移、双击切到曼德博全图。</li><li>左栏：M / J / 自动漫游 切换；迭代上限滑块（缩得越深越要调大）；四种配色；周期边界；保存 PNG。</li><li>快捷键：M / J / A 切视图，R 重置，P 换色，B 边界，+ / − 调迭代。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>沿着主心形边界慢慢走：经过的吸引周期依次是 1、2、3…，主屏里的朱利亚集从圆润变尖、变刺，最后碎成尘埃。</li><li>海马谷：把视角推到 c ≈ (−0.745, 0.113)，缩进去能看见小号的曼德博集合复制品 —— 自相似。</li><li>打开“周期边界”再缩放：主心形外面那一串圆盘，其实是周期 2、3、4 的卫星分量。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

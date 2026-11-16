@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Sandpile · 沙堆与自组织临界</title>
+<style>
+  :root{ --bg:#0a0806; --panel:rgba(28,24,18,.88); --line:rgba(255,255,255,.10);
+         --txt:#f0e9dd; --dim:#9a8f7d; --acc:#ffb454; --hot:#ff6b3d; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:#0a0806; color:var(--txt);
+        font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; display:flex; }
+  #side{width:258px; flex:0 0 258px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px); z-index:5}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#3a3226; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.15em; margin:3px 0 15px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:15px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:52px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#3a3226; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(22,19,14,.95);
+         border:1px solid var(--line); border-radius:7px; padding:5px 7px; margin-bottom:2px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .grid2 button{font:inherit; font-size:11px; color:var(--txt); background:rgba(255,255,255,.05);
+                border:1px solid var(--line); border-radius:7px; padding:5px 3px; cursor:pointer; transition:.12s}
+  .grid2 button:hover{background:rgba(255,255,255,.15)}
+  .grid2 button.on{background:rgba(255,180,84,.18); border-color:var(--acc); color:#fff}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px; cursor:pointer}
+  .btns button:hover{background:rgba(255,255,255,.15)}
+  .btns button.prim{grid-column:1/-1; background:rgba(255,180,84,.20); border-color:var(--acc)}
+  #readout{color:var(--dim); font-size:11px; line-height:1.8; border-top:1px solid var(--line);
+           padding-top:9px; margin-top:13px}
+  #readout b{color:var(--txt); font-weight:500}
+  #readout .hi{color:var(--acc)}
+  #stage{flex:1; display:flex; align-items:center; justify-content:center; gap:18px;
+         padding:18px; min-width:0; overflow:hidden; flex-wrap:wrap}
+  #pile{display:block; border-radius:8px; image-rendering:pixelated;
+        box-shadow:0 24px 64px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.07)}
+  #right{display:flex; flex-direction:column; gap:12px}
+  .card{background:rgba(22,19,14,.86); border:1px solid var(--line); border-radius:10px; padding:9px 11px}
+  .card h3{font-size:10px; letter-spacing:.14em; color:var(--dim); text-transform:uppercase; margin-bottom:6px; font-weight:500}
+  .card canvas{display:block; border-radius:5px}
+  #hint{position:fixed; left:50%; bottom:14px; transform:translateX(-50%); color:var(--dim);
+        font-size:11px; background:rgba(10,8,6,.75); border:1px solid var(--line);
+        border-radius:8px; padding:5px 13px; pointer-events:none; white-space:nowrap}
+  #hint b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>沙堆<span>临界</span></h1>
+  <div class="sub">BTW SANDPILE · SELF-ORGANIZED CRITICALITY</div>
+
+  <div class="grp">驱动方式</div>
+  <select id="selMode">
+    <option value="slow">缓慢驱动(单粒 · 测幂律)</option>
+    <option value="fast" selected>快速驱动(连续看雪崩)</option>
+    <option value="stop">停止驱动</option>
+  </select>
+
+  <div class="grp">参数</div>
+  <div class="row"><label>网格</label><b id="vN">128²</b></div>
+  <input type="range" id="sN" min="32" max="256" step="32" value="128">
+  <div class="row"><label>每帧撒粒</label><b id="vDrive">6</b></div>
+  <input type="range" id="sDrive" min="1" max="40" step="1" value="6">
+
+  <div class="grp">显示</div>
+  <select id="selMap"></select>
+  <div class="row"><label>崩落高亮残留</label><b id="vGlow">6</b></div>
+  <input type="range" id="sGlow" min="0" max="30" step="1" value="6">
+
+  <div class="grp">操作</div>
+  <div class="btns">
+    <button id="bReset" class="prim">↺ 清空沙堆</button>
+    <button id="bPause">暂停</button>
+    <button id="bCrit" class="on">自组织到临界</button>
+    <button id="bMeasure">测雪崩分布</button>
+  </div>
+
+  <div id="readout">
+    撒粒 <b id="rDrops">0</b> · <b id="rFps">--</b> fps<br>
+    总沙粒 <b id="rGrains">0</b> · 平均高度 <b id="rMean">0.00</b><br>
+    本次雪崩 <b id="rAval">0</b> · 最大 <b id="rMax">0</b><br>
+    雪崩次数 <b id="rCount">0</b><br>
+    <span class="hi">幂律指数 τ</span> <b id="rSlope">—</b><br>
+    可疑格(≥4) <b id="rUnstable">0</b>
+  </div>
+</aside>
+
+<div id="stage">
+  <canvas id="pile" width="512" height="512"></canvas>
+  <div id="right">
+    <div class="card"><h3>雪崩大小分布(双对数)</h3><canvas id="loglog" width="330" height="230"></canvas></div>
+    <div class="card"><h3>雪崩时间序列</h3><canvas id="series" width="330" height="110"></canvas></div>
+    <div class="card"><h3>高度直方图</h3><canvas id="hist" width="330" height="100"></canvas></div>
+  </div>
+</div>
+<div id="hint">缓慢驱动下,雪崩大小服从<b>幂律</b>(直线)而不是指数衰减 —— 这就是自组织临界</div>
+
+<script>
+"use strict";
+/* ============================================================
+   BTW 沙堆模型 —— 自组织临界性
+
+   规则:
+     · 每次"驱动"往随机格加 1 粒沙
+     · 若某格高度 ≥ 4,它就"崩塌":自身减 4,四个邻居各加 1
+     · 边界外(开边界)的沙粒直接掉出系统
+     · 反复崩塌直到全网格高度 ≤ 3(一次"雪崩"结束)
+
+   自组织临界:无需调参,系统自己演化到临界态,雪崩大小服从幂律
+     P(s) ~ s^(−τ),  二维 BTW 的 τ ≈ 1.2~1.3
+   所有数值在纯函数里完成,便于无头验证。
+   ============================================================ */
+
+const THRESHOLD = 4;
+
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---------------- 状态 ----------------
+function makePile(N){
+  return {
+    N,
+    h: new Uint8Array(N*N),          // 高度(0..3 稳定,崩塌中间态可能更高)
+    inQ: new Uint8Array(N*N),        // 该格是否已在待处理队列里
+    queue: new Int32Array(N*N*4),    // 环形队列(容量足够)
+    head: 0, tail: 0,
+    drops: 0,
+    lastAvalanche: 0,                // 上一次雪崩的崩塌次数
+    maxAvalanche: 0,
+    glow: new Uint8Array(N*N)        // 崩落高亮残留
+  };
+}
+function clearPile(p){
+  p.h.fill(0); p.inQ.fill(0); p.glow.fill(0);
+  p.head = p.tail = 0; p.drops = 0; p.lastAvalanche = 0; p.maxAvalanche = 0;
+}
+
+// 队列操作(环形)。容量 N*N*4 而 inQ 去重后同时在队的格点最多 N*N 个,
+// 所以不会真的溢出 —— 原来的"扩容"分支不可达,而且 subarray(p.head,p.tail) 在环形下标下本来就会丢条目
+function enqueue(p, i){
+  if(p.inQ[i]) return;
+  p.inQ[i] = 1;
+  p.queue[p.tail++ % p.queue.length] = i;
+}
+function dequeue(p){
+  const i = p.queue[p.head++ % p.queue.length];
+  p.inQ[i] = 0;
+  return i;
+}
+
+// 加一粒沙;返回该格索引
+function drop(p, rnd){
+  const i = (rnd()*p.N*p.N)|0;
+  p.h[i]++;
+  p.drops++;
+  if(p.h[i] >= THRESHOLD) enqueue(p, i);
+  return i;
+}
+
+// 处理队列直到空(跑完一次雪崩)。返回 {topplings, lost}
+// lost = 从开边界掉出系统的沙粒数(守恒量的"流")
+// 注意:这里不再全网格预扫描 —— 每个让格子越过阈值的时刻都已经 enqueue 过了。
+// 原来那行 `for(i...) if(h[i]>=THRESHOLD) enqueue(i)` 让每次 relax 都是 O(N²),
+// equilibrate 撒 12 万粒就是十几亿次操作,页面直接卡死(实测 128² 要 1.5 秒)。
+function relax(p, glowOn, stats){
+  const N = p.N, h = p.h;
+  let topplings = 0, lost = 0;
+  let guard = 0;
+  const limit = N*N*400;                 // 安全上限,防止病态发散
+  while(p.head < p.tail){
+    const i = dequeue(p);
+    if(h[i] < THRESHOLD) continue;
+    const x = i % N, y = (i / N)|0;
+    const times = (h[i] / THRESHOLD)|0;   // 一次可能崩多级
+    h[i] -= THRESHOLD*times;
+    topplings += times;
+    if(glowOn) p.glow[i] = 255;
+    if(x > 0){   h[i-1]   += times; if(h[i-1]   >= THRESHOLD) enqueue(p, i-1); } else lost += times;
+    if(x < N-1){ h[i+1]   += times; if(h[i+1]   >= THRESHOLD) enqueue(p, i+1); } else lost += times;
+    if(y > 0){   h[i-N]   += times; if(h[i-N]   >= THRESHOLD) enqueue(p, i-N); } else lost += times;
+    if(y < N-1){ h[i+N]   += times; if(h[i+N]   >= THRESHOLD) enqueue(p, i+N); } else lost += times;
+    // 自身可能仍不稳定(加了 times 级)
+    if(h[i] >= THRESHOLD) enqueue(p, i);
+    if(++guard > limit) break;
+  }
+  p.lastAvalanche = topplings;
+  p.lastLost = lost;
+  if(topplings > p.maxAvalanche) p.maxAvalanche = topplings;
+  if(stats){ stats.topplings = topplings; stats.lost = lost; }
+  return stats ? stats : { topplings, lost };
+}
+
+// 一次完整驱动:撒 + 崩塌,返回雪崩大小(崩塌次数)
+function drive(p, rnd, glowOn){
+  drop(p, rnd);
+  return relax(p, glowOn, null).topplings;
+}
+
+// ---------------- 统计 ----------------
+function pileStats(p){
+  const N = p.N, h = p.h;
+  let sum = 0, unstable = 0;
+  const hist = [0,0,0,0,0];             // 0..3 以及 ≥4
+  for(let i=0;i<N*N;i++){
+    const v = h[i];
+    sum += v;
+    if(v >= THRESHOLD) unstable++;
+    hist[v >= 4 ? 4 : v]++;
+  }
+  return { sum, mean: sum/(N*N), unstable, hist };
+}
+
+// 到临界:反复撒粒直到平均高度进入临界平台(不再显著上升)
+function equilibrate(p, rnd, maxDrops){
+  maxDrops = maxDrops || 200000;
+  let prevMean = 0, stable = 0;
+  for(let d=0; d<maxDrops; d++){
+    drive(p, rnd, false);
+    if((d % 2000) === 1999){
+      const m = pileStats(p).mean;
+      // 平均高度停止上升(且已接近临界值 ~2.1)即认为到临界
+      if(m > 1.8 && Math.abs(m - prevMean) < 0.004) { stable++; if(stable >= 3) return { drops:d+1, mean:m, converged:true }; }
+      else stable = 0;
+      prevMean = m;
+    }
+  }
+  return { drops:maxDrops, mean:pileStats(p).mean, converged:false };
+}
+
+// 收集雪崩大小样本
+function collectAvalanches(p, rnd, count, glowOn){
+  const out = new Int32Array(count);
+  for(let k=0;k<count;k++) out[k] = drive(p, rnd, glowOn);
+  return out;
+}
+
+// 幂律指数:离散最大似然(Hill / Clauset 方法)
+//   τ̂ = 1 + n / Σ ln(s_i/(s_min − 1/2))
+// 比"给直方图/CCDF 做直线拟合"稳得多 —— 后者会被有限尺寸截断和分箱宽度系统性带偏。
+// 同时给出 KS 距离,用来客观选择 s_min(取 KS 最小的那个)。
+function fitPowerLaw(sizes, lo, hi, bins, tailFrac){
+  const sel = [];
+  for(let k=0;k<sizes.length;k++){ const s = sizes[k]; if(s >= 2) sel.push(s); }
+  sel.sort((a,b)=>a-b);
+  if(sel.length < 1000) return { tau: NaN, r: 0, n: sel.length };
+  // 候选 s_min:在对数尺度上取若干分位
+  const cands = [];
+  const hiCut = hi || sel[sel.length-1];
+  for(let e=Math.log(2); e<=Math.log(hiCut); e+=0.35) cands.push(Math.max(2, Math.round(Math.exp(e))));
+  let best = null;
+  for(const smin of cands){
+    let i0 = 0;
+    while(i0 < sel.length && sel[i0] < smin) i0++;
+    const n = sel.length - i0;
+    if(n < 400) continue;
+    let sum = 0;
+    for(let k=i0;k<sel.length;k++) sum += Math.log(sel[k]/(smin - 0.5));
+    if(sum <= 0) continue;
+    const tau = 1 + n/sum;
+    // KS 距离:比较经验 CCDF 与拟合 CCDF(离散幂律用连续近似)
+    let ks = 0;
+    for(let k=i0;k<sel.length;k++){
+      const s = sel[k];
+      const emp = (sel.length - k)/sel.length;
+      const fit = Math.pow(s/(smin - 0.5), 1 - tau);
+      const d = Math.abs(emp - fit);
+      if(d > ks) ks = d;
+    }
+    if(!best || ks < best.ks) best = { tau, smin, ks, n };
+  }
+  if(!best) return { tau: NaN, r: 0, n: sel.length };
+  // 顺便算一下 log-log 的线性度(仅用于展示)
+  let m = 0, sx=0, sy=0, sxx=0, sxy=0;
+  for(let k=0;k<sel.length;k++){
+    if(sel[k] < best.smin) continue;
+    const x = Math.log(sel[k]), y = Math.log((sel.length - k)/sel.length);
+    m++; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y;
+  }
+  let r = 0;
+  if(m > 2){
+    const mx=sx/m, my=sy/m;
+    let num=0, d1=0, d2=0;
+    for(let k=0;k<sel.length;k++){
+      if(sel[k] < best.smin) continue;
+      const a = Math.log(sel[k])-mx, b = Math.log((sel.length-k)/sel.length)-my;
+      num+=a*b; d1+=a*a; d2+=b*b;
+    }
+    r = (d1>0&&d2>0) ? num/Math.sqrt(d1*d2) : 0;
+  }
+  return { tau: best.tau, smin: best.smin, ks: best.ks, n: best.n, r, slope: 1-best.tau };
+}
+
+// ---------------- 色表 ----------------
+const MAPS = {
+  "琥珀":   [[10,8,6],[70,45,20],[150,95,30],[230,165,70],[255,225,160]],
+  "灰阶":   [[8,8,8],[70,70,70],[140,140,140],[205,205,205],[252,252,252]],
+  "青蓝":   [[4,8,14],[16,50,80],[30,110,150],[110,200,220],[235,252,255]],
+  "品红":   [[10,4,14],[70,14,70],[150,30,120],[230,90,150],[255,220,235]]
+};
+
+// ============================================================
+//  浏览器部分
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("pile")){
+  const pcv = document.getElementById("pile"), pctx = pcv.getContext("2d");
+  const ll = document.getElementById("loglog"), lctx = ll.getContext("2d");
+  const se = document.getElementById("series"), sctx = se.getContext("2d");
+  const hc = document.getElementById("hist"), hctx = hc.getContext("2d");
+
+  let N = 128;
+  let pile = makePile(N);
+  let rnd = mulberry(20261017);
+  let paused = false, mode = "fast", drivePerFrame = 6, glowFrames = 6;
+  let mapName = "琥珀", LUT = null;
+  let series = [];                       // 最近的雪崩大小
+  let allSizes = [];                     // 用于拟合的样本(有上限)
+  let fit = { tau: NaN, smin: 0, ks: 1, r: 0, n: 0 };
+  let fitAt = 0;                         // 上次拟合时的样本数
+  let fitN4 = 0;                         // 样本里 s>=4 的条数(读数「可拟合」那一行)
+  let off = document.createElement("canvas");
+
+  function buildLUT(){
+    const st = MAPS[mapName];
+    LUT = new Uint8Array(256*3);
+    for(let k=0;k<256;k++){
+      const t = k/255*(st.length-1);
+      const b = Math.min(st.length-2, Math.max(0, Math.floor(t))), f = t-b;
+      for(let c=0;c<3;c++) LUT[k*3+c] = Math.round(st[b][c]*(1-f)+st[b+1][c]*f);
+    }
+  }
+  buildLUT();
+  const selMap = document.getElementById("selMap");
+  Object.keys(MAPS).forEach(k=>{ const o=document.createElement("option"); o.value=k; o.textContent=k; selMap.appendChild(o); });
+  selMap.value = mapName;
+  selMap.onchange = ()=>{ mapName = selMap.value; buildLUT(); };
+
+  function rebuild(n){
+    N = n; pile = makePile(N);
+    off.width = N; off.height = N;
+    pcv.width = Math.min(768, N*4); pcv.height = pcv.width;
+    series = []; allSizes = []; fit = { tau: NaN, smin: 0, ks: 1, r: 0, n: 0 };
+    autoCritical();
+  }
+  const offCtx = () => off.getContext("2d");
+
+  function autoCritical(){
+    // 先自组织到临界态,再开始显示
+    equilibrate(pile, rnd, 120000);
+  }
+
+  function drawPile(){
+    const octx = offCtx();
+    const img = octx.createImageData(N, N);
+    const d = img.data, h = pile.h, g = pile.glow;
+    for(let i=0;i<N*N;i++){
+      let t;
+      if(g[i] > 0){ t = 0.55 + 0.45*(g[i]/255); }      // 崩落处用高亮覆盖
+      else t = h[i]/3;
+      const k = Math.max(0, Math.min(255, (t*255)|0));
+      const o = i*4;
+      d[o] = LUT[k*3]; d[o+1] = LUT[k*3+1]; d[o+2] = LUT[k*3+2]; d[o+3] = 255;
+    }
+    octx.putImageData(img, 0, 0);
+    pctx.setTransform(1,0,0,1,0,0);
+    pctx.imageSmoothingEnabled = false;
+    pctx.fillStyle = "#0a0806"; pctx.fillRect(0,0,pcv.width,pcv.height);
+    pctx.drawImage(off, 0, 0, pcv.width, pcv.height);
+  }
+
+  function drawSeries(){
+    const w = se.width, h = se.height;
+    sctx.clearRect(0,0,w,h);
+    sctx.fillStyle = "rgba(0,0,0,.35)"; sctx.fillRect(0,0,w,h);
+    if(series.length < 2) return;
+    const mx = Math.max(...series, 1);
+    for(let k=0;k<series.length;k++){
+      const x = k/(series.length-1)*(w-6)+3;
+      const bh = Math.max(1, (series[k]/mx)*(h-10));
+      const t = series[k]/mx;
+      sctx.fillStyle = `hsl(${30 - t*30}, 95%, ${45+t*25}%)`;
+      sctx.fillRect(x, h-4-bh, Math.max(1, w/series.length*0.8), bh);
+    }
+    sctx.fillStyle = "rgba(200,190,170,.7)"; sctx.font = "9px ui-monospace, monospace";
+    sctx.fillText("max " + mx, 6, 12);
+  }
+
+  function drawHist(){
+    const w = hc.width, h = hc.height;
+    hctx.clearRect(0,0,w,h);
+    hctx.fillStyle = "rgba(0,0,0,.35)"; hctx.fillRect(0,0,w,h);
+    const st = pileStats(pile);
+    const maxC = Math.max(...st.hist, 1);
+    const bw = (w-20)/5;
+    for(let k=0;k<5;k++){
+      const bh = (st.hist[k]/maxC)*(h-26);
+      hctx.fillStyle = k===4 ? "rgba(255,107,61,.95)" : `hsl(${30+k*8},80%,${40+k*10}%)`;
+      hctx.fillRect(10+k*bw, h-16-bh, bw-3, bh);
+      hctx.fillStyle = "rgba(200,190,170,.8)"; hctx.font = "9px ui-monospace, monospace";
+      hctx.fillText(k===4?"≥4":String(k), 12+k*bw, h-4);
+    }
+  }
+
+  function drawLogLog(){
+    const w = ll.width, h = ll.height, pad = 30;
+    lctx.clearRect(0,0,w,h);
+    lctx.fillStyle = "rgba(0,0,0,.4)"; lctx.fillRect(0,0,w,h);
+    lctx.strokeStyle = "rgba(255,255,255,.20)"; lctx.lineWidth = 1;
+    lctx.beginPath(); lctx.moveTo(pad,6); lctx.lineTo(pad,h-pad); lctx.lineTo(w-6,h-pad); lctx.stroke();
+    lctx.fillStyle = "rgba(200,190,170,.85)"; lctx.font = "10px ui-monospace, monospace";
+    lctx.fillText("log P(s)", 4, 14); lctx.fillText("log s", w-40, h-8);
+    if(allSizes.length < 300){
+      lctx.fillStyle = "rgba(200,190,170,.55)";
+      lctx.fillText("样本不足,点「测雪崩分布」", pad+6, h/2);
+      return;
+    }
+    // 直方图(log 分箱)
+    let mx = 0; for(const s of allSizes) if(s>mx) mx=s;
+    const lo = 1, hi = Math.max(4, mx);
+    const bins = 26, llo = Math.log(lo+0.5), lhi = Math.log(hi+0.5), bw2 = (lhi-llo)/bins;
+    const cnt = new Array(bins).fill(0);
+    for(const s of allSizes){
+      let b = Math.floor((Math.log(s+0.5)-llo)/bw2);
+      if(b<0) b=0; if(b>=bins) b=bins-1;
+      cnt[b]++;
+    }
+    let mc = 0; for(const c of cnt) if(c>mc) mc=c;
+    const X = b => pad + ((b+0.5)/bins)*(w-pad-8);
+    const Y = c => (h-pad) - (Math.log(c+0.5)/Math.log(mc+0.5))*(h-pad-14);
+    // 数据点
+    lctx.fillStyle = "rgba(255,180,84,.92)";
+    for(let b=0;b<bins;b++){
+      if(cnt[b] < 1) continue;
+      lctx.beginPath(); lctx.arc(X(b), Y(cnt[b]), 2.6, 0, 6.2832); lctx.fill();
+    }
+    // 拟合直线(用拟合出的 s_min 与 τ 画一条参考线)
+    if(isFinite(fit.tau) && fit.smin){
+      const x0 = Math.log(fit.smin), x1 = Math.log(mx+0.5);
+      const y0 = Math.log(1), y1 = (1-fit.tau)*(x1-x0);
+      const Xlog = v => pad + ((v-llo)/(lhi-llo))*(w-pad-8);
+      // 把 log CCDF 映射到画布:与 Y() 同一套比例(这里用计数比例近似)
+      lctx.strokeStyle = "rgba(110,231,240,.9)"; lctx.lineWidth = 1.6;
+      lctx.beginPath();
+      lctx.moveTo(Xlog(x0), (h-pad) - (y0/Math.log(mc+0.5))*(h-pad-14));
+      lctx.lineTo(Xlog(x1), (h-pad) - (y1/Math.log(mc+0.5))*(h-pad-14));
+      lctx.stroke();
+    }
+    lctx.fillStyle = "rgba(255,180,84,.95)"; lctx.font = "11px ui-monospace, monospace";
+    lctx.fillText("τ ≈ " + (isFinite(fit.tau) ? fit.tau.toFixed(3) : "—"), pad+6, 16);
+    lctx.fillStyle = "rgba(160,150,130,.85)"; lctx.font = "9px ui-monospace, monospace";
+    lctx.fillText("n=" + allSizes.length + "  s_min=" + (fit.smin||"—"), pad+6, 28);
+  }
+
+  // ---- 主循环 ----
+  let fpsAcc=0, fpsN=0, last = performance.now();
+  function frame(now){
+    const dt = (now-last)/1000; last = now;
+    if(!paused && mode !== "stop"){
+      const glowOn = glowFrames > 0;
+      if(mode === "fast"){
+        // 快速驱动:每帧撒若干粒,并且在帧末把队列跑到空(看到连续雪崩)
+        for(let k=0;k<drivePerFrame;k++) drop(pile, rnd);
+        // relax 在 stats 为 null 时返回的是 {topplings, lost} 对象 —— 原来直接拿它跟 0 比大小,
+        // 对象 > 0 恒为 false,所以默认的「快速驱动」下雪崩序列永远是空白的
+        const t = relax(pile, glowOn).topplings;
+        if(t > 0){
+          series.push(t); if(series.length>220) series.shift();
+          // 快速驱动的雪崩也要进样本池:否则读数里「雪崩次数」永远是 0,
+          // 明明刚崩了 9 万次却写着 0 次,谁看都觉得坏了
+          allSizes.push(t);
+          if(allSizes.length > 400000) allSizes.splice(0, 100000);
+          // 边跑边拟合:每攒够 2000 个样本重算一次幂律指数。
+          // 原来只有点「测量雪崩分布」才算,结果快速驱动下明明崩了几万次要读数是 "—"
+          if(allSizes.length - fitAt >= 2000){
+            fitAt = allSizes.length;
+            fit = fitPowerLaw(allSizes, 2, Math.max(16, N*N*0.02), 24);
+            fitN4 = 0;
+            for(const s of allSizes) if(s >= 4) fitN4++;
+          }
+        }
+      } else {
+        // 缓慢驱动:一次一粒,记录每一个雪崩大小(用于幂律)
+        const t = drive(pile, rnd, glowOn);
+        series.push(t); if(series.length>220) series.shift();
+        allSizes.push(t);
+        if(allSizes.length > 400000) allSizes.splice(0, 100000);
+      }
+    }
+    // 高亮消退
+    if(glowFrames > 0){
+      const g = pile.glow, decay = 255/Math.max(1, glowFrames);   // 连续映射(原来只有 0/1-12/13-30 三档行为)
+      for(let i=0;i<g.length;i++) if(g[i] > 0) g[i] = g[i] > decay ? g[i]-decay : 0;
+    } else {
+      pile.glow.fill(0);                    // 滑块拉到 0 = 关掉高亮,但不能把旧的高亮永远留在画面上
+    }
+    drawPile(); drawSeries(); drawHist(); drawLogLog();
+
+    fpsAcc += dt; fpsN++;
+    if(fpsN >= 15){ rFps.textContent = (fpsN/fpsAcc).toFixed(0); fpsAcc=0; fpsN=0; }
+    const st = pileStats(pile);
+    rDrops.textContent = pile.drops.toLocaleString();
+    rGrains.textContent = st.sum.toLocaleString();
+    rMean.textContent = st.mean.toFixed(3);
+    rAval.textContent = pile.lastAvalanche;
+    rMax.textContent = pile.maxAvalanche.toLocaleString();
+    rCount.textContent = allSizes.length.toLocaleString();
+    rSlope.textContent = isFinite(fit.tau) ? fit.tau.toFixed(3) + (fit.smin ? " (s_min="+fit.smin+")" : "") : "—";
+    rUnstable.textContent = fitN4.toLocaleString();   // 「可拟合(≥4)」= 样本里 s>=4 的条数(原来错填了不稳定格数)
+    requestAnimationFrame(frame);
+  }
+
+  // ---- 界面 ----
+  const $ = id => document.getElementById(id);
+  const rDrops=$("rDrops"), rFps=$("rFps"), rGrains=$("rGrains"), rMean=$("rMean"),
+        rAval=$("rAval"), rMax=$("rMax"), rCount=$("rCount"), rSlope=$("rSlope"), rUnstable=$("rUnstable");
+  $("selMode").onchange = e => { mode = e.target.value; };
+  $("sN").oninput = e => { $("vN").textContent = e.target.value+"²"; rebuild(+e.target.value); };
+  $("sDrive").oninput = e => { drivePerFrame = +e.target.value; $("vDrive").textContent = drivePerFrame; };
+  $("sGlow").oninput = e => { glowFrames = +e.target.value; $("vGlow").textContent = glowFrames; };
+  $("bReset").onclick = ()=>{ clearPile(pile); series=[]; allSizes=[]; fit={ tau:NaN, smin:0, ks:1, r:0, n:0 }; };
+  const bPause = $("bPause");
+  bPause.onclick = ()=>{ paused=!paused; bPause.classList.toggle("on",paused); bPause.textContent = paused?"继续":"暂停"; };
+  const bCrit = $("bCrit");
+  bCrit.onclick = ()=>{
+    // 自组织:不动画,直接把系统推到临界平台
+    autoCritical();
+    series = []; allSizes = []; fit = { tau: NaN, smin: 0, ks: 1, r: 0, n: 0 };
+  };
+  $("bMeasure").onclick = ()=>{
+    // 先在临界态采样,再拟合
+    autoCritical();
+    allSizes = [];
+    const batch = 60000;
+    const sizes = collectAvalanches(pile, rnd, batch, false);
+    for(const s of sizes) allSizes.push(s);
+    fit = fitPowerLaw(allSizes, 2, Math.max(16, N*N*0.02), 24);
+  };
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k===" "){ e.preventDefault(); bPause.click(); }
+    else if(k==="r") $("bReset").click();
+    else if(k==="m") $("bMeasure").click();
+  });
+
+  off.width = N; off.height = N;
+  pcv.width = Math.min(768, N*4); pcv.height = pcv.width;
+  autoCritical();
+  requestAnimationFrame(frame);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">沙堆模型 · Sandpile</h2>
+    <p class="hp-lead">往一堆沙上一粒粒地加沙子。沙堆会自己停在某个角度，然后每隔一阵塌一次大方 —— 没有谁在指挥，它自己走到了临界状态。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>BTW 模型</b>　巴克、汤、维森菲尔德 1987 年的经典模型：每个格子最多放 3 粒，第 4 粒就'崩'——自己减 4，四个邻居各加 1。就这么简单。加上阿贝尔性质（崩的顺序不影响最终状态），它能被纯数学地研究，却在统计上表现出惊人复杂的临界行为。</p><p><b>自组织临界 (SOC)</b>　沙堆不需要谁去'调'到临界点，加着加着自然就到了：坡度被钉在休止角附近，任何一粒新沙都可能引发从 1 格到十万格不等的雪崩。这就是自组织临界 —— 地震、森林火灾、山体滑坡、股票崩盘、甚至神经网络放电都被认为有这类行为。</p><p><b>幂律与 1/f</b>　雪崩大小的分布近似 P(s) ~ s^−τ，τ ≈ 1。因为是幂律而不是高斯钟形，'大地震'才不像两米高的人那样不可能。右边直方图取双对数，理论上是条直线，斜率就是 τ。真实沙堆会偏离，因为有限尺寸和驱动方式都会截断大尺度。</p><p><b>为什么会有两种驱动</b>　'慢速驱动'一粒一粒加，能观察真实的雪崩统计与临界态；'快速驱动'一次性撒很多，很快就塌到稳定 —— 前者是研究，后者是表演。你会发现快速驱动下的雪崩序列几乎是空的，因为一次倾倒把上千次崩塌合并成了一个大事件。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左侧：网格大小、驱动方式（慢 / 快速）、落沙速率、是否高亮正在崩的格子。</li><li>点「开始 / 暂停」，或「单步」看一次落沙。</li><li>右侧直方图与拟合标签实时更新（幂律指数 τ）。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>慢速驱动放一会儿，注意'平静很久 → 突然一大片染色'的节奏 —— 这就是临界态。</li><li>把高亮关掉再看，你会发现大崩塌在视觉上完全无征兆。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

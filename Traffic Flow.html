@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Traffic Flow · 交通流</title>
+<style>
+  :root{ --bg:#08090e; --panel:rgba(20,22,32,.88); --line:rgba(255,255,255,.10);
+         --txt:#e9ecf6; --dim:#7e86a0; --acc:#ffd166; --hot:#ff6b6b; --cool:#6ee7f0; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:#08090e; color:var(--txt);
+        font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; display:flex; }
+  #side{width:258px; flex:0 0 258px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px); z-index:5}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#2b3245; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.15em; margin:3px 0 15px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:15px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:48px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2b3245; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(16,18,28,.95);
+         border:1px solid var(--line); border-radius:7px; padding:5px 7px; margin-bottom:2px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .grid2 button{font:inherit; font-size:11px; color:var(--txt); background:rgba(255,255,255,.05);
+                border:1px solid var(--line); border-radius:7px; padding:5px 3px; cursor:pointer; transition:.12s}
+  .grid2 button:hover{background:rgba(255,255,255,.15)}
+  .grid2 button.on{background:rgba(255,209,102,.18); border-color:var(--acc); color:#fff}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px; cursor:pointer}
+  .btns button:hover{background:rgba(255,255,255,.15)}
+  .btns button.prim{grid-column:1/-1; background:rgba(255,209,102,.20); border-color:var(--acc)}
+  #readout{color:var(--dim); font-size:11px; line-height:1.8; border-top:1px solid var(--line);
+           padding-top:9px; margin-top:13px}
+  #readout b{color:var(--txt); font-weight:500}
+  #stage{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+         gap:14px; padding:18px; min-width:0; overflow:hidden}
+  #roadWrap{width:100%; max-width:1100px}
+  #road{display:block; width:100%; height:auto; border-radius:8px;
+        box-shadow:0 20px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.07)}
+  #panels{display:flex; gap:14px; width:100%; max-width:1100px; flex-wrap:wrap; justify-content:center}
+  .card{background:rgba(16,18,26,.85); border:1px solid var(--line); border-radius:10px; padding:8px 10px}
+  .card h3{font-size:10px; letter-spacing:.14em; color:var(--dim); text-transform:uppercase; margin-bottom:5px; font-weight:500}
+  .card canvas{display:block}
+  #hint{color:var(--dim); font-size:11px}
+  #hint b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>交通<span>流</span></h1>
+  <div class="sub">NAGEL–SCHRECKENBERG CA</div>
+
+  <div class="grp">场景</div>
+  <div class="grid2" id="sceneBox"></div>
+
+  <div class="grp">道路</div>
+  <div class="row"><label>车道数</label><b id="vLanes">2</b></div>
+  <input type="range" id="sLanes" min="1" max="4" step="1" value="2">
+  <div class="row"><label>长度</label><b id="vLen">800</b></div>
+  <input type="range" id="sLen" min="200" max="1600" step="100" value="800">
+  <div class="row"><label>车流密度</label><b id="vDen">0.12</b></div>
+  <input type="range" id="sDen" min="0.01" max="0.6" step="0.01" value="0.12">
+  <div class="row"><label>最大车速 v<sub>max</sub></label><b id="vVmax">5</b></div>
+  <input type="range" id="sVmax" min="1" max="9" step="1" value="5">
+  <div class="row"><label>随机减速 p</label><b id="vP">0.25</b></div>
+  <input type="range" id="sP" min="0" max="0.6" step="0.01" value="0.25">
+
+  <div class="grp">显示</div>
+  <select id="selView">
+    <option value="speed">按车速着色</option>
+    <option value="type">按车道着色</option>
+    <option value="heat">拥堵热力</option>
+  </select>
+  <div class="row"><label>滑行速度</label><b id="vSpeed">1.0×</b></div>
+  <input type="range" id="sSpeed" min="0.2" max="4" step="0.1" value="1">
+
+  <div class="grp">操作</div>
+  <div class="btns">
+    <button id="bReset" class="prim">↺ 重新生成车流</button>
+    <button id="bPause">暂停</button>
+    <button id="bMeasure">测基本图</button>
+  </div>
+
+  <div id="readout">
+    车辆 <b id="rN">0</b> · <b id="rFps">--</b> fps<br>
+    密度 ρ <b id="rRho">0.000</b><br>
+    流量 q <b id="rQ">0.000</b> · 平均车速 <b id="rV">0.00</b><br>
+    拥堵格 <b id="rJam">0%</b><br>
+    步数 <b id="rSteps">0</b>
+  </div>
+</aside>
+
+<div id="stage">
+  <div id="roadWrap"><canvas id="road" width="1600" height="300"></canvas></div>
+  <div id="panels">
+    <div class="card"><h3>基本图 · 流量 q(ρ)</h3><canvas id="fund" width="300" height="180"></canvas></div>
+    <div class="card"><h3>时空图 · 后车轨迹</h3><canvas id="st" width="360" height="180"></canvas></div>
+    <div class="card"><h3>车速分布</h3><canvas id="hist" width="240" height="180"></canvas></div>
+  </div>
+  <div id="hint">随机减速 p 是拥堵的源头:<b>p &gt; 0 时自发形成走走停停的拥堵波</b>(看时空图里的斜纹)</div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   交通流 —— Nagel–Schreckenberg 元胞自动机
+
+   规则(每步,并行更新):
+     1) 加速:  v ← min(v+1, vmax)
+     2) 减速:  v ← min(v, gap)          gap = 前车距离 − 1
+     3) 随机:  v ← max(v−1, 0)  以概率 p
+     4) 前进:  x ← x + v    (周期边界)
+
+   关键:步骤 3 的噪声是"走走停停拥堵"的唯一来源 —— p=0 时永远不会有拥堵。
+
+   数值核心是纯函数,可在 Node 里逐步验证。
+   ============================================================ */
+
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---------------- 核心模型 ----------------
+// 单车道状态:{N, occ[N](0/1), v[N], pos[](占位车辆的序号列表), n}
+function makeLane(N, vmax){
+  return { N, occ: new Uint8Array(N), v: new Uint8Array(N), vmax };
+}
+// 按密度随机撒车;返回车辆位置数组(升序)
+// 注意:每格独立以概率 density 放车即可。
+// (曾经写成 rnd() < density*max(1,round(1/density)),而那个乘积恒等于 1 → 每格都放车)
+function populate(lane, density, vmax, seed){
+  const { N, occ, v } = lane;
+  occ.fill(0); v.fill(0);
+  const rnd = mulberry(seed === undefined ? 12345 : seed);
+  const pos = [];
+  for(let x=0;x<N;x++){
+    if(rnd() < density){ occ[x]=1; v[x]=Math.floor(rnd()*(vmax+1)); pos.push(x); }
+  }
+  return pos;
+}
+// 一步并行更新(Nagel–Schreckenberg)。pos 必须升序。
+// 返回本步的平均速度
+function stepLane(lane, pos, p, rnd){
+  const { N, occ, v, vmax } = lane;
+  const n = pos.length;
+  if(n === 0) return 0;
+  // 计算每辆车的 gap(与前车的空格数)
+  // 先把新位置算出来(基于旧状态),再统一写回 —— 这样才是"并行更新"
+  const newPos = new Int32Array(n), newV = new Uint8Array(n);
+  let sumV = 0;
+  for(let i=0;i<n;i++){
+    const x = pos[i];
+    const nx = pos[(i+1)%n];
+    let gap = (i === n-1) ? (nx + N - x - 1) : (nx - x - 1);
+    if(gap < 0) gap = 0;
+    let vi = v[x];
+    vi = Math.min(vi+1, vmax);          // 1) 加速
+    vi = Math.min(vi, gap);             // 2) 不撞前车
+    if(p > 0 && rnd() < p) vi = Math.max(vi-1, 0);   // 3) 随机减速
+    newV[i] = vi;
+    newPos[i] = (x + vi) % N;           // 4) 前进
+    sumV += vi;
+  }
+  // 统一写回
+  occ.fill(0); v.fill(0);
+  for(let i=0;i<n;i++){
+    const q = newPos[i];
+    occ[q] = 1; v[q] = newV[i];
+    pos[i] = q;
+  }
+  // 写回后位置可能不再升序(周期边界上跨过 N 的车会排到前面),重新排序
+  pos.sort((a,b)=>a-b);
+  return sumV/n;
+}
+
+// 统计:密度、平均速度、流量、拥堵格比例(v=0 的车)
+function laneStats(lane, pos){
+  const { N, v } = lane;
+  const n = pos.length;
+  let sv = 0, jam = 0;
+  for(const q of pos){ sv += v[q]; if(v[q] === 0) jam++; }
+  const rho = n/N;
+  const vAvg = n ? sv/n : 0;
+  return { n, rho, vAvg, q: rho*vAvg, jam: n ? jam/n : 0 };
+}
+
+// ---------------- 基本图测量 ----------------
+// 对给定密度跑够时间后,取时间平均流量(去掉预热期)
+function measureFundamental(opts){
+  const { N, vmax, p, density, warmup, samples, seed } = Object.assign(
+    { N:400, vmax:5, p:0.25, density:0.1, warmup:600, samples:600, seed:1 }, opts||{});
+  const lane = makeLane(N, vmax);
+  const pos = populate(lane, density, vmax, seed);
+  const rnd = mulberry((seed*7919 + 13) >>> 0);
+  if(pos.length === 0) return { rho:0, q:0, vAvg:0 };
+  for(let s=0;s<warmup;s++) stepLane(lane, pos, p, rnd);
+  let qs = 0, vs = 0;
+  for(let s=0;s<samples;s++){
+    const va = stepLane(lane, pos, p, rnd);
+    qs += laneStats(lane, pos).q;
+    vs += va;
+  }
+  return { rho: pos.length/N, q: qs/samples, vAvg: vs/samples };
+}
+
+// ---------------- 两车道 + 换道(可选) ----------------
+// 简化换道:若本车道受限(前车太近)且目标车道两侧都有空档,则换过去
+function stepMulti(lanes, poss, p, rnd){
+  const L = lanes.length;
+  // 先做换道决策(基于当前状态)
+  if(L > 1){
+    for(let l=0;l<L;l++){
+      const lane = lanes[l], pos = poss[l];
+      const snap = pos.slice();          // 遍历快照:本轮换道会就地改动 pos
+      const n = snap.length;
+      for(let i=0;i<n;i++){
+        const x = snap[i];
+        const idx = pos.indexOf(x);
+        if(idx < 0) continue;                        // 这辆车本帧已经被换走了
+        const m = pos.length;
+        const nx = pos[(idx+1)%m];
+        const gap = (idx===m-1) ? (nx + lane.N - x - 1) : (nx - x - 1);
+        if(gap >= 2) continue;                      // 前面还够跑,不用换
+        const dirs = [];
+        if(l > 0) dirs.push(l-1);
+        if(l < L-1) dirs.push(l+1);
+        for(const l2 of dirs){
+          const other = lanes[l2], op = poss[l2];
+          if(other.occ[x]) continue;                // 目标车道同位有车
+          // 目标车道前后是否安全
+          let safe = true;
+          for(let yy=x-1; yy<=x+1; yy++){
+            const q = ((yy%other.N)+other.N)%other.N;
+            if(other.occ[q]){ safe = false; break; }
+          }
+          if(!safe) continue;
+          // 执行换道:从 l 挪到 l2(位置不变)
+          lane.occ[x]=0; lane.v[x]=0;
+          other.occ[x]=1; other.v[x]=Math.min(lane.vmax, 1);
+          // 就地删:原来写的是 poss[l] = poss[l].filter(...),换了个新数组,
+          // 但外层 const pos 还指着旧的 —— 同一轮里后面的车会拿"已经开走的车"算车间距
+          pos.splice(idx, 1);
+          poss[l2].push(x); poss[l2].sort((a,b)=>a-b);
+          break;
+        }
+      }
+    }
+  }
+  let sV=0, cnt=0;
+  for(let l=0;l<L;l++){
+    const va = stepLane(lanes[l], poss[l], p, rnd);
+    sV += va*poss[l].length; cnt += poss[l].length;
+  }
+  return cnt ? sV/cnt : 0;
+}
+
+// ============================================================
+//  浏览器部分
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("road")){
+  const rcv = document.getElementById("road"), rctx = rcv.getContext("2d");
+  const fund = document.getElementById("fund"), fctx = fund.getContext("2d");
+  const stc = document.getElementById("st"), sctx = stc.getContext("2d");
+  const hic = document.getElementById("hist"), hctx = hic.getContext("2d");
+
+  let N = 800, LANES = 2, VMAX = 5, P = 0.25, DENS = 0.12, viewMode = "speed", speed = 1;
+  let lanes = [], poss = [], rnd = mulberry(20261017), paused = false, steps = 0;
+  let fTrace = [];                 // 基本图散点
+  let stImg = null;                // 时空图位图
+  let stRow = 0;
+
+  function build(lanesN, len){
+    LANES = lanesN; N = len;
+    lanes = []; poss = [];
+    for(let l=0;l<LANES;l++){
+      const lane = makeLane(N, VMAX);
+      lanes.push(lane);
+      poss.push(populate(lane, DENS, VMAX, (20261017 + l*977) >>> 0));
+    }
+    steps = 0;
+    stImg = null; stRow = 0;
+    fTrace = [];
+  }
+
+  // 车速 → 颜色(模型里没有车型,所以"type"这一档实际是按车道区分)
+  function speedColor(v, mode, lane0type){
+    if(mode === "type"){
+      const hues = [210, 40, 320, 160];
+      const h = hues[lane0type % hues.length];
+      return `hsl(${h},80%,60%)`;
+    }
+    if(mode === "heat"){
+      // 低速=红,高速=偏青
+      const t = v/Math.max(1,VMAX);
+      return `hsl(${(1-t)*10},90%,${34+t*30}%)`;
+    }
+    const t = v/Math.max(1,VMAX);
+    return `hsl(${200 - t*190},92%,${40+t*28}%)`;
+  }
+
+  function drawRoad(){
+    const W = rcv.width, H = rcv.height;
+    rctx.setTransform(1,0,0,1,0,0);
+    rctx.fillStyle = "#0a0b11"; rctx.fillRect(0,0,W,H);
+    const laneH = H/LANES;
+    for(let l=0;l<LANES;l++){
+      const y0 = l*laneH;
+      // 车道底
+      rctx.fillStyle = (l%2===0) ? "#111320" : "#0f111c";
+      rctx.fillRect(0,y0,W,laneH);
+      // 车道分隔虚线
+      rctx.strokeStyle = "rgba(255,255,255,.18)"; rctx.setLineDash([18,14]); rctx.lineWidth = 2;
+      rctx.beginPath(); rctx.moveTo(0,y0+laneH-1); rctx.lineTo(W,y0+laneH-1); rctx.stroke();
+      rctx.setLineDash([]);
+      const sx = W/N;
+      const pos = poss[l], lane = lanes[l];
+      for(const q of pos){
+        const v = lane.v[q];
+        const x = q*sx;
+        const cw = Math.max(2.2, sx*1.15);
+        const ch = laneH*0.46;
+        const y = y0 + laneH*0.5 - ch*0.5;
+        rctx.fillStyle = speedColor(v, viewMode, l);
+        // 圆角矩形(车前部略亮)
+        rctx.beginPath();
+        const r = Math.min(ch*0.32, cw*0.35);
+        rctx.moveTo(x+r, y);
+        rctx.lineTo(x+cw-r, y); rctx.quadraticCurveTo(x+cw, y, x+cw, y+r);
+        rctx.lineTo(x+cw, y+ch-r); rctx.quadraticCurveTo(x+cw, y+ch, x+cw-r, y+ch);
+        rctx.lineTo(x+r, y+ch); rctx.quadraticCurveTo(x, y+ch, x, y+ch-r);
+        rctx.lineTo(x, y+r); rctx.quadraticCurveTo(x, y, x+r, y);
+        rctx.fill();
+        if(v === 0){                        // 完全停住的车加一圈红边
+          rctx.strokeStyle = "rgba(255,80,80,.9)"; rctx.lineWidth = 1.6; rctx.stroke();
+        }
+      }
+    }
+  }
+
+  // 基本图:理论线 + 实测点
+  function drawFund(){
+    const w = fund.width, h = fund.height, pad = 26;
+    fctx.clearRect(0,0,w,h);
+    fctx.fillStyle = "rgba(0,0,0,.35)"; fctx.fillRect(0,0,w,h);
+    // 坐标轴
+    fctx.strokeStyle = "rgba(255,255,255,.25)"; fctx.lineWidth = 1;
+    fctx.beginPath(); fctx.moveTo(pad, 8); fctx.lineTo(pad, h-pad); fctx.lineTo(w-8, h-pad); fctx.stroke();
+    fctx.fillStyle = "rgba(160,170,190,.85)"; fctx.font = "10px ui-monospace, monospace";
+    fctx.fillText("q", 6, 16); fctx.fillText("ρ", w-16, h-8);
+    fctx.fillText("0", pad-8, h-pad+12); fctx.fillText("0.6", w-28, h-pad+12);
+    const X = r => pad + (r/0.6)*(w-pad-10);
+    const Y = q => (h-pad) - (q/Math.max(0.6, VMAX/4))* (h-pad-14);
+    // 理论:q = ρ·vmax(自由流,ρ 小),以及 ρ→1 的堵塞
+    fctx.strokeStyle = "rgba(110,231,240,.5)"; fctx.lineWidth = 1.4; fctx.setLineDash([4,4]);
+    fctx.beginPath();
+    for(let i=0;i<=60;i++){
+      const r = i/60*0.6;
+      const qFree = r*VMAX, qJam = (1 - r)*0;    // 只画自由流线
+      const qq = Math.min(qFree, (1-r)*VMAX*0.5);
+      const px = X(r), py = Y(qq);
+      i? fctx.lineTo(px,py) : fctx.moveTo(px,py);
+    }
+    fctx.stroke(); fctx.setLineDash([]);
+    // 实测点
+    for(const pt of fTrace){
+      fctx.fillStyle = "rgba(255,209,102,.9)";
+      fctx.beginPath(); fctx.arc(X(pt.rho), Y(pt.q), 3, 0, 6.2832); fctx.fill();
+    }
+    // 当前工作点
+    const cur = currentStats();
+    if(cur){
+      fctx.strokeStyle = "rgba(255,107,107,.95)"; fctx.lineWidth = 1.6;
+      const px = X(cur.rho), py = Y(cur.q);
+      fctx.beginPath(); fctx.moveTo(px-5,py); fctx.lineTo(px+5,py);
+      fctx.moveTo(px,py-5); fctx.lineTo(px,py+5); fctx.stroke();
+    }
+  }
+
+  function currentStats(){
+    let n=0, sv=0;
+    for(let l=0;l<LANES;l++){
+      const s = laneStats(lanes[l], poss[l]);
+      n += s.n; sv += s.vAvg*s.n;
+    }
+    const total = N*LANES;
+    const rho = n/total, vAvg = n? sv/n : 0;
+    return { n, rho, vAvg, q: rho*vAvg };
+  }
+
+  // 时空图:每步一行,行内按位置画点(黑=车,灰=空)
+  function pushSpacetime(){
+    const w = stc.width, h = stc.height;
+    if(!stImg){
+      stImg = sctx.createImageData(w, h);
+      const d = stImg.data;
+      for(let q=0;q<w*h;q++){ d[q*4]=8; d[q*4+1]=9; d[q*4+2]=14; d[q*4+3]=255; }
+      stRow = 0;
+    }
+    const d = stImg.data;
+    const y = stRow % h;
+    for(let px=0;px<w;px++){
+      const cell = Math.floor(px/w*N);
+      let occupied = false, slow = false;
+      for(let l=0;l<LANES;l++){
+        if(lanes[l].occ[cell]){
+          occupied = true;
+          if(lanes[l].v[cell] === 0) slow = true;
+        }
+      }
+      const o = (y*w+px)*4;
+      if(slow){ d[o]=255; d[o+1]=80; d[o+2]=80; }
+      else if(occupied){ d[o]=255; d[o+1]=230; d[o+2]=180; }
+      else { d[o]=14; d[o+1]=16; d[o+2]=24; }
+      d[o+3]=255;
+    }
+    stRow++;
+    sctx.putImageData(stImg, 0, 0);
+  }
+
+  // 车速分布
+  function drawHist(){
+    const w = hic.width, h = hic.height;
+    hctx.clearRect(0,0,w,h);
+    hctx.fillStyle = "rgba(0,0,0,.35)"; hctx.fillRect(0,0,w,h);
+    const bins = new Array(VMAX+1).fill(0);
+    let n = 0;
+    for(let l=0;l<LANES;l++) for(const q of poss[l]){ bins[lanes[l].v[q]]++; n++; }
+    if(!n) return;
+    const maxB = Math.max(...bins, 1);
+    const bw = (w-24)/(VMAX+1);
+    for(let v=0;v<=VMAX;v++){
+      const bh = (bins[v]/maxB)*(h-34);
+      hctx.fillStyle = `hsl(${200-(v/Math.max(1,VMAX))*190},85%,55%)`;
+      hctx.fillRect(12+v*bw, h-18-bh, bw-3, bh);
+      hctx.fillStyle = "rgba(160,170,190,.8)";
+      hctx.font = "9px ui-monospace, monospace";
+      hctx.fillText(v, 12+v*bw+bw/2-3, h-6);
+    }
+  }
+
+  // ---- 主循环 ----
+  let fpsAcc=0, fpsN=0, last = performance.now(), stepAcc = 0;
+  function frame(now){
+    const dt = (now-last)/1000; last = now;
+    if(!paused){
+      // 倍率是小数也得生效:原来 Math.round 让 0.2-0.5× 全部变成 1×,1.5× 变成 2×
+      stepAcc += speed;
+      let k = 0;
+      while(stepAcc >= 1 && k < 8){                 // 最多 8 个子步,防止卡顿后追帧爆炸
+        stepAcc -= 1; k++;
+        stepMulti(lanes, poss, P, rnd);
+        steps++;
+        if(k === 1) pushSpacetime();
+      }
+    }
+    drawRoad(); drawFund(); drawHist();
+    fpsAcc += dt; fpsN++;
+    if(fpsN >= 20){ rFps.textContent = (fpsN/fpsAcc).toFixed(0); fpsAcc=0; fpsN=0; }
+    const st = currentStats();
+    rN.textContent = st.n;
+    rRho.textContent = st.rho.toFixed(3);
+    rQ.textContent = st.q.toFixed(3);
+    rV.textContent = st.vAvg.toFixed(2);
+    let jamN=0, tot=0;
+    for(let l=0;l<LANES;l++){ for(const q of poss[l]){ tot++; if(lanes[l].v[q]===0) jamN++; } }
+    rJam.textContent = (tot? jamN/tot*100 : 0).toFixed(0)+"%";
+    rSteps.textContent = steps.toLocaleString();
+    requestAnimationFrame(frame);
+  }
+
+  // ---- 界面 ----
+  const $ = id => document.getElementById(id);
+  const rN=$("rN"), rFps=$("rFps"), rRho=$("rRho"), rQ=$("rQ"), rV=$("rV"), rJam=$("rJam"), rSteps=$("rSteps");
+  const SCENES = {
+    "通畅高速": { den:0.05, vmax:6, p:0.15, lanes:2 },
+    "早高峰":   { den:0.18, vmax:5, p:0.30, lanes:3 },
+    "拥堵蠕行": { den:0.35, vmax:4, p:0.35, lanes:2 },
+    "幽灵拥堵": { den:0.12, vmax:5, p:0.40, lanes:1 },
+    "无噪声":   { den:0.12, vmax:5, p:0.00, lanes:2 },
+    "大塞车":   { den:0.50, vmax:5, p:0.30, lanes:2 }
+  };
+  const sceneBox = $("sceneBox"), sceneBtns = {};
+  Object.keys(SCENES).forEach(k=>{
+    const b = document.createElement("button");
+    b.textContent = k; b.onclick = ()=>applyScene(k);
+    sceneBox.appendChild(b); sceneBtns[k] = b;
+  });
+  function applyScene(k){
+    const s = SCENES[k];
+    DENS = s.den; VMAX = s.vmax; P = s.p;
+    LANES = s.lanes;          // syncUI 要显示新车道数:原来 build() 才更新 LANES,滑块显示的是旧值
+    syncUI();
+    build(s.lanes, N);
+    Object.keys(sceneBtns).forEach(q=>sceneBtns[q].classList.toggle("on", q===k));
+  }
+  function syncUI(){
+    $("sDen").value = DENS; $("vDen").textContent = DENS.toFixed(2);
+    $("sVmax").value = VMAX; $("vVmax").textContent = VMAX;
+    $("sP").value = P; $("vP").textContent = P.toFixed(2);
+    $("sLanes").value = LANES; $("vLanes").textContent = LANES;
+    $("sLen").value = N; $("vLen").textContent = N;
+  }
+  $("sLanes").oninput = e => { LANES = +e.target.value; $("vLanes").textContent = LANES; build(LANES, N); };
+  $("sLen").oninput = e => { N = +e.target.value; $("vLen").textContent = N; rcv.width = Math.min(1600, Math.max(600, N*2)); build(LANES, N); };
+  $("sDen").oninput = e => { DENS = +e.target.value; $("vDen").textContent = DENS.toFixed(2); build(LANES, N); };
+  $("sVmax").oninput = e => { VMAX = +e.target.value; $("vVmax").textContent = VMAX; build(LANES, N); };
+  $("sP").oninput = e => { P = +e.target.value; $("vP").textContent = P.toFixed(2); };
+  $("sSpeed").oninput = e => { speed = +e.target.value; $("vSpeed").textContent = speed.toFixed(1)+"×"; };
+  $("selView").onchange = e => { viewMode = e.target.value; };
+  $("bReset").onclick = ()=>build(LANES, N);
+  const bPause = $("bPause");
+  bPause.onclick = ()=>{ paused=!paused; bPause.classList.toggle("on",paused); bPause.textContent = paused?"继续":"暂停"; };
+  $("bMeasure").onclick = ()=>startMeasure();
+  // 基本图:一次扫描要跑 14 个密度,同步跑会把主线程卡住约 1 秒。
+  // 拆成"每个密度一帧"的增量任务,点一下(或首屏自动)就能看着曲线一点点长出来。
+  let measureQ = null;
+  function startMeasure(){
+    fTrace = [];
+    measureQ = [0.02,0.04,0.06,0.08,0.10,0.12,0.15,0.18,0.22,0.26,0.30,0.35,0.42,0.5];
+    stepMeasure();
+  }
+  function stepMeasure(){
+    if(!measureQ || !measureQ.length){ measureQ = null; return; }
+    const d = measureQ.shift();
+    const r = measureFundamental({ N: Math.min(400,N), vmax: VMAX, p: P, density: d,
+                                   warmup: 300, samples: 300, seed: 99 });
+    fTrace.push({ rho: r.rho, q: r.q });
+    setTimeout(stepMeasure, 0);
+  }
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k===" "){ e.preventDefault(); bPause.click(); }
+    else if(k==="r") $("bReset").click();
+  });
+
+  build(2, 800);
+  applyScene("早高峰");
+  requestAnimationFrame(frame);
+  // 首屏先跑一次基本图,否则新用户看到的是一张空坐标轴,以为坏了(增量执行,不卡)
+  setTimeout(()=>{ if(!fTrace.length) startMeasure(); }, 260);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">交通流 · Traffic Flow</h2>
+    <p class="hp-lead">一条环形高速，每辆车只会做四件事：加速、看前车刹车、随机犹豫、换道。堵车就从这四件事里长出来。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>Nagel-Schreckenberg 模型</b>　1992 年的经典元胞自动机交通模型，每步四件事：① 加速 v ← min(v+1, vmax)；② 刹车 v ← min(v, 前车距离−1)；③ 随机慢化 v ← max(v−1, 0)，概率 p；④ 前进 v 格。就这么四行，能复现真实高速的几乎所有宏观现象。</p><p><b>基本图 (fundamental diagram)</b>　把密度 ρ（每格几辆车）与流量 q（每秒过几辆）画在一起：ρ 小时 q ∝ ρ（自由流），ρ 大时 q 反而下降（拥堵）。中间有个峰值，也就是道路的通行能力上限。曲线不是唯一解 —— 同样密度下自由流和拥堵流都能稳定存在，这叫'双稳态'。</p><p><b>幽灵堵车</b>　把随机慢化 p 调到很小也会有堵车：一串车里的某辆车轻轻一脚刹车，后面的车必须刹得更狠（车间距缓冲被吃掉），这个'刹车波'逆行传播、越滚越大。这就是没有任何事故、没有任何瓶颈却突然堵死的原因，也叫交通波 / jamiton。</p><p><b>单车道 → 多车道</b>　换道规则决定多车道系统的行为：只有在目标道 '前方更大空档 + 后方不致于追尾' 时才换。注意换道用的是本步开始时的位置快照，否则一辆车换道会污染别人看到的空档量（这是最容易被忽略的实现陷阱）。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左侧调车道数、车辆数/密度、随机慢化 p、播放速度。</li><li>预设场景：自由流 / 临界 / 拥堵蠕行。</li><li>下方时空图：横轴位置、纵轴时间，斜线是车流的轨迹，堵车会显示成深色斜条纹。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>把 p 从 0 慢慢提到 0.3：自由流里突然冒出几条深色条纹，那几条就是幽灵堵车，而且它们会朝上游移动。</li><li>看时空图里的条纹斜率：越陡表示拥堵波传播越慢，通常约 −15 km/h，和真实观测一致。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

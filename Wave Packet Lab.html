@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Wave Packet Lab · 量子波包实验室</title>
+<style>
+  :root{ --bg:#06070d; --panel:rgba(20,22,34,.86); --line:rgba(255,255,255,.10);
+         --txt:#e7eaf4; --dim:#7f88a3; --acc:#6ee7d8; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:#06070d; color:var(--txt);
+        font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; display:flex; }
+  #side{width:250px; flex:0 0 250px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px); z-index:5}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#2b3145; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.15em; margin:3px 0 15px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:15px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:44px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2b3145; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(16,18,28,.95);
+         border:1px solid var(--line); border-radius:7px; padding:5px 7px; margin-bottom:2px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .grid2 button{font:inherit; font-size:11px; color:var(--txt); background:rgba(255,255,255,.05);
+                border:1px solid var(--line); border-radius:7px; padding:5px 3px; cursor:pointer; transition:.12s}
+  .grid2 button:hover{background:rgba(255,255,255,.15)}
+  .grid2 button.on{background:rgba(110,231,216,.18); border-color:var(--acc); color:#fff}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px; cursor:pointer}
+  .btns button:hover{background:rgba(255,255,255,.15)}
+  .btns button.prim{grid-column:1/-1; background:rgba(110,231,216,.20); border-color:var(--acc)}
+  #readout{color:var(--dim); font-size:11px; line-height:1.8; border-top:1px solid var(--line);
+           padding-top:9px; margin-top:13px}
+  #readout b{color:var(--txt); font-weight:500}
+  #readout .ok{color:#7ee0a0} #readout .warn{color:#ffcf6b} #readout .bad{color:#ff8f8f}
+  #stage{flex:1; display:flex; align-items:center; justify-content:center; padding:18px; min-width:0; position:relative}
+  #wrap{position:relative; max-width:100%; max-height:100%; aspect-ratio:1/1; width:min(100%, calc(100vh - 36px))}
+  #cv{width:100%; height:100%; display:block; border-radius:6px;
+      box-shadow:0 26px 70px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.07);
+      /* 128² 的网格铺到 ~800px 上,硬像素放大会有摩尔纹,看上去像随机噪点;
+         双线性插值才看得清波前和干涉条纹(数据本身没变) */
+      image-rendering:auto; cursor:crosshair; touch-action:none}
+  #hint{position:absolute; left:50%; bottom:14px; transform:translateX(-50%); color:var(--dim);
+        font-size:11px; background:rgba(6,7,13,.7); border:1px solid var(--line);
+        border-radius:8px; padding:5px 12px; pointer-events:none; white-space:nowrap}
+  #hint b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>量子<span>波包实验室</span></h1>
+  <div class="sub">SPLIT-STEP SCHRÖDINGER</div>
+
+  <div class="grp">势场</div>
+  <select id="selPot">
+    <option value="free">自由空间(扩散)</option>
+    <option value="slit2" selected>双缝干涉</option>
+    <option value="slit1">单缝衍射</option>
+    <option value="barrier">方势垒(隧穿)</option>
+    <option value="well">方势阱</option>
+    <option value="harmonic">谐振子束缚</option>
+    <option value="paint">自由绘制</option>
+  </select>
+
+  <div class="grp">显示</div>
+  <select id="selMap"></select>
+  <div class="row"><label>增益</label><b id="vGain">1.0</b></div>
+  <input type="range" id="sGain" min="0.2" max="6" step="0.1" value="1">
+  <div class="row"><label>相位对比</label><b id="vPhase">0</b></div>
+  <input type="range" id="sPhase" min="0" max="1" step="0.05" value="0">
+
+  <div class="grp">波包</div>
+  <div class="row"><label>动量 k₀</label><b id="vK">2.6</b></div>
+  <input type="range" id="sK" min="0" max="6.6" step="0.2" value="2.6">
+  <div class="row"><label>宽度 σ</label><b id="vSig">6.0</b></div>
+  <input type="range" id="sSig" min="2" max="16" step="0.5" value="6">
+  <div class="row"><label>势强度 V₀</label><b id="vV">40</b></div>
+  <input type="range" id="sV" min="0" max="160" step="2" value="40">
+  <div class="row"><label>时间步 dt</label><b id="vDt">0.02</b></div>
+  <input type="range" id="sDt" min="0.002" max="0.05" step="0.002" value="0.02">
+
+  <div class="grp">操作</div>
+  <div class="btns">
+    <button id="bReset" class="prim">↺ 重置波函数</button>
+    <button id="bPause">暂停</button>
+    <button id="bClear">清空势场</button>
+  </div>
+
+  <div id="readout">
+    网格 <b id="rN">128²</b> · <b id="rFps">--</b> fps<br>
+    总概率 <b id="rNorm">1.000000</b> <span id="rNormTag" class="ok">守恒</span><br>
+    ⟨能量⟩ <b id="rE">0.00</b><br>
+    ⟨x⟩ <b id="rX">0.00</b> · ⟨y⟩ <b id="rY">0.00</b><br>
+    步数 <b id="rSteps">0</b>
+  </div>
+</aside>
+
+<div id="stage">
+  <div id="wrap">
+    <canvas id="cv" width="512" height="512"></canvas>
+    <div id="hint">选「自由绘制」后可以<b>拖动鼠标画势垒</b></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   量子波包实验室 —— 分步傅里叶法求解二维薛定谔方程
+
+   i ∂ψ/∂t = [ -∇²/(2m) + V ] ψ      (取 ℏ = 1, m = 1)
+
+   分步傅里叶(Split-Step Fourier):
+     一步 = exp(-i V dt/2) → FFT → exp(-i k²dt/2) → IFFT → exp(-i V dt/2)
+   因为动能项在动量空间是对角的,这个方法在空间/动量之间交替,精度高且严格守恒概率。
+
+   所有数值都在纯函数里完成(含自己实现的 FFT),便于无头验证。
+   ============================================================ */
+
+// ---------------- 一维 FFT(迭代 Cooley–Tukey,原地)----------------
+// re/im 是 Float64Array(N),N 必须是 2 的幂
+function fft1d(re, im, inverse){
+  const n = re.length;
+  // 位反转置换
+  for(let i=1, j=0; i<n; i++){
+    let bit = n >> 1;
+    for(; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if(i < j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; }
+  }
+  for(let len=2; len<=n; len<<=1){
+    const ang = 2*Math.PI/len * (inverse ? 1 : -1);
+    const wRe = Math.cos(ang), wIm = Math.sin(ang);
+    for(let i=0; i<n; i+=len){
+      let curRe = 1, curIm = 0;
+      for(let k=0; k<len/2; k++){
+        const a = i+k, b = i+k+len/2;
+        const uRe = re[a], uIm = im[a];
+        const vRe = re[b]*curRe - im[b]*curIm;
+        const vIm = re[b]*curIm + im[b]*curRe;
+        re[a] = uRe + vRe; im[a] = uIm + vIm;
+        re[b] = uRe - vRe; im[b] = uIm - vIm;
+        const nRe = curRe*wRe - curIm*wIm;
+        curIm = curRe*wIm + curIm*wRe; curRe = nRe;
+      }
+    }
+  }
+  if(inverse){ const s = 1/n; for(let i=0;i<n;i++){ re[i]*=s; im[i]*=s; } }
+}
+// 二维 FFT:先逐行,再逐列(都需要连续内存,所以列方向用临时缓冲)
+function fft2d(re, im, N, inverse){
+  const rowR = new Float64Array(N), rowI = new Float64Array(N);
+  for(let y=0;y<N;y++){
+    const o = y*N;
+    for(let x=0;x<N;x++){ rowR[x]=re[o+x]; rowI[x]=im[o+x]; }
+    fft1d(rowR, rowI, inverse);
+    for(let x=0;x<N;x++){ re[o+x]=rowR[x]; im[o+x]=rowI[x]; }
+  }
+  const colR = new Float64Array(N), colI = new Float64Array(N);
+  for(let x=0;x<N;x++){
+    for(let y=0;y<N;y++){ colR[y]=re[y*N+x]; colI[y]=im[y*N+x]; }
+    fft1d(colR, colI, inverse);
+    for(let y=0;y<N;y++){ re[y*N+x]=colR[y]; im[y*N+x]=colI[y]; }
+  }
+}
+
+// ---------------- 波函数状态 ----------------
+// 注意:下面的 FFT 是基 2 的,所以网格边长必须是 2 的幂;
+// 这里强制向下取到 2 的幂并回报,避免"传了 160 却静默算错"这类坑。
+function pow2Floor(n){
+  let p = 1;
+  while(p*2 <= n) p *= 2;
+  return p;
+}
+function makeState(N){
+  const Nreq = N;
+  N = Math.max(8, pow2Floor(N));
+  const st = {
+    N, Nreq,
+    re: new Float64Array(N*N), im: new Float64Array(N*N),
+    V:  new Float64Array(N*N),                 // 势能(实)
+    kx2: new Float64Array(N*N),                // k² 表
+    kinRe: new Float64Array(N*N), kinIm: new Float64Array(N*N),   // exp(-i k²dt/2)
+    potRe: new Float64Array(N*N), potIm: new Float64Array(N*N),   // exp(-i V dt/2)
+    tmpRe: new Float64Array(N*N), tmpIm: new Float64Array(N*N),
+    dt: 0.02, dx: 1, L: 0, dk: 0
+  };
+  if(N !== Nreq) st.Nadjusted = true;
+  return st;
+}
+// 建立 k² 表(用 FFT 的环绕频率排布)
+function buildKinetic(st, L){
+  const N = st.N, dk = 2*Math.PI/L;
+  for(let y=0;y<N;y++){
+    const ky = (y < N/2 ? y : y-N) * dk;
+    for(let x=0;x<N;x++){
+      const kx = (x < N/2 ? x : x-N) * dk;
+      st.kx2[y*N+x] = kx*kx + ky*ky;
+    }
+  }
+  st.dk = dk; st.L = L;
+}
+// 重新计算两个半步相位因子
+function refreshPhases(st){
+  const N = st.N, h = st.dt*0.5;
+  for(let i=0;i<N*N;i++){
+    const a = -st.kx2[i]*h;
+    st.kinRe[i] = Math.cos(a); st.kinIm[i] = Math.sin(a);
+    const b = -st.V[i]*h;
+    st.potRe[i] = Math.cos(b); st.potIm[i] = Math.sin(b);
+  }
+}
+// 高斯波包(k0 是物理动量,沿 +x 运动),自动归一化
+// 相位约定:本求解器用 ψ_k(t)=ψ_k(0)·e^{-i k²t/2},于是 e^{+i k x} 对应动量 +k。
+// 所以这里用正号(用负号会得到一个往 -x 跑的波包)。
+function initPacket(st, x0, y0, sigma, k0){
+  const N = st.N, re = st.re, im = st.im;
+  const dx = st.L/N;
+  const phasePerCell = k0*dx;
+  let norm = 0;
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const mx = x-x0, my = y-y0;
+    const g = Math.exp(-(mx*mx+my*my)/(4*sigma*sigma));
+    const ph = phasePerCell*mx;
+    const i = y*N+x;
+    re[i] = g*Math.cos(ph);
+    im[i] = g*Math.sin(ph);
+    norm += g*g;
+  }
+  const s = 1/Math.sqrt(norm);
+  for(let i=0;i<N*N;i++){ re[i]*=s; im[i]*=s; }
+  return 1;
+}
+// 概率与期望值
+function norm2(st){
+  const N=st.N, re=st.re, im=st.im;
+  let s = 0;
+  for(let i=0;i<N*N;i++) s += re[i]*re[i] + im[i]*im[i];
+  return s;
+}
+// 总能量 ⟨E⟩:把 ψ 变换到动量空间算动能,再加实空间的势能
+// 权重 w = Δx²·Δk(由"单个 k 模必须给出 Σ|ψ̃|²=1"标定,等价于 Parseval + 连续归一化)
+function energy(st){
+  const N=st.N;
+  const r = st.tmpRe, m = st.tmpIm;
+  r.set(st.re); m.set(st.im);
+  fft2d(r, m, N, false);
+  const kinW = 1/(N*N);                       // 标定值:单位归一化平面波给出精确的 E=k²/2
+  let Ekin = 0;
+  for(let i=0;i<N*N;i++){
+    const p = r[i]*r[i] + m[i]*m[i];          // |FFT[ψ]|²
+    Ekin += 0.5*st.kx2[i]*p;
+  }
+  Ekin *= kinW;
+  // 势能:⟨V⟩ = Σ V|ψ|²
+  let Epot = 0;
+  for(let i=0;i<N*N;i++) Epot += st.V[i]*(st.re[i]*st.re[i] + st.im[i]*st.im[i]);
+  return { Ekin, Epot, E: Ekin+Epot };
+}
+// 分步傅里叶推进 steps 步
+function advance(st, steps){
+  const N = st.N, n2 = N*N;
+  for(let s=0;s<steps;s++){
+    // 半步势能
+    for(let i=0;i<n2;i++){
+      const a=st.re[i], b=st.im[i];
+      st.re[i] = a*st.potRe[i] - b*st.potIm[i];
+      st.im[i] = a*st.potIm[i] + b*st.potRe[i];
+    }
+    // 变换到动量空间
+    fft2d(st.re, st.im, N, false);
+    // 整步动能
+    for(let i=0;i<n2;i++){
+      const a=st.re[i], b=st.im[i];
+      st.re[i] = a*st.kinRe[i] - b*st.kinIm[i];
+      st.im[i] = a*st.kinIm[i] + b*st.kinRe[i];
+    }
+    // 变换回实空间
+    fft2d(st.re, st.im, N, true);
+    // 后半步势能
+    for(let i=0;i<n2;i++){
+      const a=st.re[i], b=st.im[i];
+      st.re[i] = a*st.potRe[i] - b*st.potIm[i];
+      st.im[i] = a*st.potIm[i] + b*st.potRe[i];
+    }
+  }
+}
+// ⟨x⟩ ⟨y⟩
+function centroids(st){
+  const N=st.N;
+  let sx=0, sy=0, s=0;
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const p = st.re[y*N+x]**2 + st.im[y*N+x]**2;
+    sx += x*p; sy += y*p; s += p;
+  }
+  return s>0 ? [sx/s, sy/s] : [0,0];
+}
+
+// ---------------- 势场构造 ----------------
+// 全部以网格坐标定义;厚度/宽度按 N 的比例,换分辨率时形状不变
+function applyPotential(st, kind, strength, slits, slitW, thick){
+  // 「自由绘制」时势场由用户手画,这里必须原样返回:
+  // 原来它落到末尾的单缝/双缝分支,不但 V.fill(0) 把画的东西清掉,还顺手砌一道墙
+  if(kind==="paint") return;
+  const N = st.N, V = st.V;
+  V.fill(0);
+  const cxL = N*0.55;                       // 势垒位置(偏右,给波包留出飞行距离)
+  const half = Math.max(1, thick|0);
+  if(kind==="free") return;
+  if(kind==="harmonic"){
+    const c = (N-1)/2, w = N*0.42;
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      const dx=(x-c)/w, dy=(y-c)/w;
+      V[y*N+x] = strength*0.35*(dx*dx+dy*dy);
+    }
+    return;
+  }
+  if(kind==="barrier" || kind==="well"){
+    const s = (kind==="barrier" ? 1 : -1)*strength;
+    for(let y=0;y<N;y++) for(let x=Math.round(cxL)-half; x<=Math.round(cxL)+half; x++){
+      if(x<0||x>=N) continue;
+      V[y*N+x] = s;
+    }
+    return;
+  }
+  // 单缝/双缝:一块带开口的墙
+  const xs0 = Math.round(cxL)-half, xs1 = Math.round(cxL)+half;
+  const gapW = Math.max(2, Math.round(slitW));
+  const centers = slits===2 ? [N*0.5 - gapW*0.85, N*0.5 + gapW*0.85] : [N*0.5];
+  for(let y=0;y<N;y++){
+    let open = false;
+    for(const c of centers) if(Math.abs(y-c) <= gapW/2){ open = true; break; }
+    if(open) continue;
+    for(let x=xs0;x<=xs1;x++){ if(x>=0&&x<N) V[y*N+x] = strength; }
+  }
+}
+
+// ============================================================
+//  浏览器部分
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("cv")){
+  const cv = document.getElementById("cv"), ctx = cv.getContext("2d", {alpha:false});
+  const CW = 512, CH = 512;
+  // 物理域长 L 与网格 N:L=60、N=128 → dx≈0.47,k 的奈奎斯特上限 π/dx≈6.7,
+  // 所以滑块的 k₀ 上限就卡在 6.6 —— 再往上网格根本分辨不了,只会画出混叠的条纹
+  const CELLS = 128, DOMAIN = 60;
+  let st = makeState(CELLS);
+  st.dt = 0.02; buildKinetic(st, DOMAIN);
+  let img = ctx.createImageData(CW, CH);
+
+  // 色表
+  const MAPS = {
+    "inferno": [[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[245,125,21],[250,193,39],[252,255,164]],
+    "viridis": [[68,1,84],[72,40,120],[62,74,137],[49,104,142],[38,130,142],[31,158,137],[53,183,121],[109,205,89],[180,222,44],[253,231,37]],
+    "ice":     [[2,6,20],[10,40,80],[20,90,140],[45,150,190],[110,205,220],[200,240,250],[255,255,255]],
+    "twilight":[[40,20,60],[80,40,110],[140,70,150],[200,120,160],[230,190,180],[200,150,190],[140,100,160],[70,60,120],[20,20,40]],
+    "mono":    [[0,0,0],[60,60,60],[130,130,130],[200,200,200],[255,255,255]]
+  };
+  let mapName = "inferno", LUT = null;
+  function buildLUT(){
+    const stops = MAPS[mapName];
+    LUT = new Uint8Array(256*3);
+    for(let i=0;i<256;i++){
+      const t = i/255*(stops.length-1);
+      const k = Math.min(stops.length-2, Math.floor(t)), f = t-k;
+      for(let c=0;c<3;c++)
+        LUT[i*3+c] = Math.round(stops[k][c]*(1-f) + stops[k+1][c]*f);
+    }
+  }
+  buildLUT();
+  const selMap = document.getElementById("selMap");
+  Object.keys(MAPS).forEach(k=>{ const o=document.createElement("option"); o.value=k; o.textContent=k; selMap.appendChild(o); });
+  selMap.value = "inferno";
+  selMap.onchange = ()=>{ mapName = selMap.value; buildLUT(); };
+
+  // 参数
+  let potKind = "slit2", V0 = 40, gain = 1, phaseMix = 0;
+  let k0 = 2.6, sigma = 6, dt = 0.02, paused = false, steps = 0;
+  let painting = false, painted = false;
+  let lastNorm = 1, energyE0 = null;
+
+  function rebuildPhases(){ refreshPhases(st); }
+  function resetPacket(){
+    applyPotential(st, potKind, V0, potKind==="slit2"?2:1, Math.max(3, st.N*0.055), Math.max(1, st.N*0.012));
+    rebuildPhases();
+    initPacket(st, st.N*0.16, st.N*0.5, sigma, k0);
+    steps = 0; energyE0 = null;
+    // 清屏
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle = "#06070d"; ctx.fillRect(0,0,CW,CH);
+  }
+
+  // 渲染:概率密度(叠加相位作为可选染色)
+  function draw(){
+    const N = st.N, re = st.re, im = st.im;
+    let pmax = 1e-12;
+    // 自适应增益:用 99.5% 分位附近的最大值,避免单个尖峰把画面压暗
+    const hist = new Float64Array(1024);
+    for(let i=0;i<N*N;i++){
+      const p = re[i]*re[i] + im[i]*im[i];
+      if(p > pmax) pmax = p;
+      hist[Math.min(1023, (p*1024)|0)]++;
+    }
+    let acc = 0, target = N*N*0.995, p995 = pmax;
+    for(let b=1023;b>=0;b--){ acc += hist[b]; if(acc >= N*N - target){ p995 = (b+1)/1024; break; } }
+    const scale = gain / Math.max(p995, 1e-9);
+    const d = img.data;
+    const sx = CW/N, sy = CH/N;
+    for(let gy=0; gy<CH; gy++){
+      const gy0 = Math.min(N-1, (gy/sy)|0);
+      for(let gx=0; gx<CW; gx++){
+        const gx0 = Math.min(N-1, (gx/sx)|0);
+        const i = gy0*N + gx0;
+        const p = re[i]*re[i] + im[i]*im[i];
+        let t = p*scale;
+        t = t/(1+t);                       // 软饱和,细节不会被淹没
+        if(phaseMix > 0){
+          // 相位 hue:把相位差映射到亮度抖动上,产生干涉条纹的"流向"感
+          const ph = Math.atan2(im[i], re[i]);
+          t = t*(1-phaseMix) + phaseMix*(0.5+0.5*Math.sin(ph))*t*1.6;
+        }
+        let idx = (t*255)|0;
+        if(idx > 255) idx = 255; if(idx < 0) idx = 0;
+        const o = (gy*CW+gx)*4;
+        d[o]   = LUT[idx*3];
+        d[o+1] = LUT[idx*3+1];
+        d[o+2] = LUT[idx*3+2];
+        d[o+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    // 势场轮廓
+    ctx.strokeStyle = "rgba(255,255,255,.16)"; ctx.lineWidth = 1;
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      const v = st.V[y*N+x];
+      if(v === 0) continue;
+      const right = x+1<N ? st.V[y*N+x+1] : 0;
+      const down  = y+1<N ? st.V[(y+1)*N+x] : 0;
+      const X = x*sx, Y = y*sy;
+      if(v !== right){ ctx.beginPath(); ctx.moveTo(X+sx,Y); ctx.lineTo(X+sx,Y+sy); ctx.stroke(); }
+      if(v !== down){  ctx.beginPath(); ctx.moveTo(X,Y+sy); ctx.lineTo(X+sx,Y+sy); ctx.stroke(); }
+    }
+  }
+
+  // 主循环
+  let fpsAcc = 0, fpsN = 0, last = performance.now();
+  function frame(now){
+    const dtw = (now-last)/1000; last = now;
+    fpsAcc += dtw; fpsN++;
+    if(!paused){
+      const stepsPerFrame = Math.max(1, Math.round(4));
+      advance(st, stepsPerFrame);
+      steps += stepsPerFrame;
+    }
+    draw();
+    if(fpsN >= 12){
+      const fps = fpsN/fpsAcc;
+      rFps.textContent = fps.toFixed(0);
+      fpsAcc = 0; fpsN = 0;
+    }
+    // 读数
+    const nrm = norm2(st);
+    rNorm.textContent = nrm.toFixed(6);
+    const drift = Math.abs(nrm-lastNorm)/Math.max(1e-12,lastNorm);
+    lastNorm = nrm;
+    requestAnimationFrame(frame);
+  }
+
+  // 界面绑定
+  const $ = id => document.getElementById(id);
+  const rFps=$("rFps"), rN=$("rN"), rNorm=$("rNorm"), rNormTag=$("rNormTag"), rE=$("rE"), rX=$("rX"), rY=$("rY"), rSteps=$("rSteps");
+  const sK=$("sK"), vK=$("vK"), sSig=$("sSig"), vSig=$("vSig"), sV=$("sV"), vV=$("vV"),
+        sDt=$("sDt"), vDt=$("vDt"), sGain=$("sGain"), vGain=$("vGain"), sPhase=$("sPhase"), vPhase=$("vPhase");
+  $("selPot").onchange = e => { potKind = e.target.value; resetPacket(); };
+  sK.oninput = e => { k0 = +e.target.value; vK.textContent = k0.toFixed(1); resetPacket(); };
+  sSig.oninput = e => { sigma = +e.target.value; vSig.textContent = sigma.toFixed(1); resetPacket(); };
+  sV.oninput = e => { V0 = +e.target.value; vV.textContent = V0; resetPacket(); };
+  sDt.oninput = e => { dt = +e.target.value; st.dt = dt; vDt.textContent = dt.toFixed(3); rebuildPhases(); };
+  sGain.oninput = e => { gain = +e.target.value; vGain.textContent = gain.toFixed(1); };
+  sPhase.oninput = e => { phaseMix = +e.target.value; vPhase.textContent = phaseMix.toFixed(2); };
+  $("bReset").onclick = ()=>resetPacket();
+  $("bClear").onclick = ()=>{ st.V.fill(0); rebuildPhases(); };
+  const bPause = $("bPause");
+  bPause.onclick = ()=>{ paused=!paused; bPause.classList.toggle("on",paused); bPause.textContent = paused?"继续":"暂停"; };
+
+  // 自由绘制势场
+  function toCell(ev){
+    const r = cv.getBoundingClientRect();
+    const x = Math.floor((ev.clientX-r.left)/r.width*st.N);
+    const y = Math.floor((ev.clientY-r.top)/r.height*st.N);
+    return [Math.max(0,Math.min(st.N-1,x)), Math.max(0,Math.min(st.N-1,y))];
+  }
+  function paintAt(ev, erase){
+    const [x,y] = toCell(ev), br = Math.max(1, Math.round(st.N*0.02));
+    for(let dy=-br;dy<=br;dy++) for(let dx=-br;dx<=br;dx++){
+      if(dx*dx+dy*dy > br*br) continue;
+      const xx=x+dx, yy=y+dy;
+      if(xx<0||xx>=st.N||yy<0||yy>=st.N) continue;
+      st.V[yy*st.N+xx] = erase ? 0 : V0;
+    }
+    refreshPhases();
+  }
+  cv.addEventListener("pointerdown", e=>{
+    if(potKind!=="paint") return;
+    painting = true; painted = true;
+    try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    paintAt(e, e.button===2);
+  });
+  cv.addEventListener("pointermove", e=>{ if(painting && potKind==="paint") paintAt(e, e.buttons===2); });
+  addEventListener("pointerup", ()=>{ painting=false; });
+  cv.addEventListener("contextmenu", e=>e.preventDefault());
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k===" "){ e.preventDefault(); bPause.click(); }
+    else if(k==="r") resetPacket();
+  });
+
+  // 每 500ms 更新一次能量读数(FFT 有成本,不放进每帧)
+  setInterval(()=>{
+    const { E } = energy(st);
+    if(energyE0 === null) energyE0 = E;
+    rE.textContent = E.toFixed(2);
+    const [cx, cy] = centroids(st);
+    rX.textContent = cx.toFixed(1); rY.textContent = cy.toFixed(1);
+    rSteps.textContent = steps.toLocaleString();
+    rN.textContent = st.N + "²";
+    const nrm = norm2(st);
+    rNorm.textContent = nrm.toFixed(6);            // 原来只算了不显示,读数永远停在 1.000000
+    const dev = Math.abs(nrm-1);
+    rNormTag.textContent = dev < 1e-6 ? "守恒" : (dev < 1e-3 ? "轻微漂移" : "泄漏");
+    rNormTag.className = dev < 1e-6 ? "ok" : (dev < 1e-3 ? "warn" : "bad");
+  }, 500);
+
+  resetPacket();
+  requestAnimationFrame(frame);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">波包实验室 · Wave Packet Lab</h2>
+    <p class="hp-lead">一个量子粒子打向一道墙。它一部分被反射、一部分穿过、还有一点点直接'穿墙' —— 因为量子力学里的粒子是波。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>薛定谔方程</b>　iℏ ∂ψ/∂t = −(ℏ²/2m)∂²ψ/∂x² + V(x)ψ。这里的 ψ 是复数波函数，|ψ|² 是'在某处找到粒子的概率密度'。注意它是一阶时间导数的复方程 —— 这也意味着它有'概率流'，粒子不会凭空消失。</p><p><b>分裂步傅里叶法 (split-step Fourier)</b>　把一步演化拆成两半：先在动量空间乘 e^(−ik²Δt/2)（自由传播），再在位置空间乘 e^(−iVΔt)（势场相位）。因为动能算符在动量空间是对角的、势能算符在位置空间是对角的，两边都只是'乘一个相位'，用 FFT 来回换基就能又快又准。这是数值解非线性薛定谔 / 光纤 / BEC 的标准手段。</p><p><b>为什么必须用 FFT</b>　直接差分会把高频分量算错、还会在边界反弹。傅里叶方法是谱方法，空间精度随网格指数提升，代价是两侧必须做周期边界处理（这里的吸收层负责把跑到边界的波吃掉，避免自己绕回来）。</p><p><b>隧穿与势垒</b>　经典粒子能量低于势垒高度就过不去。量子波包却会有一部分穿透：透射率随势垒宽度指数衰减（WKB 近似 T ≈ e^(−2κa)，κ = √(2m(V−E))/ℏ）。这就是扫描隧道显微镜、闪存、核聚变能工作的物理基础。</p><p><b>色散、相干与奈奎斯特</b>　波包不是单色波：它是一束不同 k 的叠加，所以会随时间长胖变平（色散）。k 的采样上限由网格决定：k_max = π/dx —— 超过它就会出现'混叠'，波形开始以错误的方向走。你也会看到干涉条纹：两道缝的波同相叠加处亮、反相处暗。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左侧选势场（无 / 单缝 / 双缝 / 阶梯 / 势垒 / 自由绘制），调初速度 k₀ 与波包宽度。</li><li>「发射」扔出一个波包；「暂停 / 单步」逐帧看演化。</li><li>自由绘制模式可以直接在画布上画墙。右侧读数显示总概率、能量、漂移量。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>单缝：一部分波被反射回去，一部分绕过缝口衍射；把缝变窄，衍射角变大。</li><li>双缝：等两个波包都到达屏后，看条纹怎么一行行长出来 —— 单粒子也能产生干涉。</li><li>势垒：把 k₀ 调到刚好过不去，仍会有一小撮波漏到另一侧，那就是隧穿。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Strange Attractors · 奇异吸引子</title>
+<style>
+  :root{ --bg:#05040a; --panel:rgba(18,16,30,.86); --line:rgba(255,255,255,.10);
+         --txt:#e6e2f2; --dim:#847ea3; --acc:#8fd8ff; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:#05040a; color:var(--txt);
+        font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; display:flex; }
+  #side{width:252px; flex:0 0 252px; height:100vh; overflow-y:auto; background:var(--panel);
+        border-right:1px solid var(--line); padding:14px 13px 30px; backdrop-filter:blur(14px); z-index:5}
+  #side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:#2c2742; border-radius:4px}
+  h1{font-size:14px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10px; letter-spacing:.15em; margin:3px 0 15px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin:15px 0 7px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0}
+  .row label{color:var(--dim); font-size:11.5px}
+  .row b{color:var(--txt); font-weight:500; min-width:42px; text-align:right; font-size:11.5px}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2c2742; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+  .sys{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .sys button{font:inherit; font-size:11px; color:var(--txt); background:rgba(255,255,255,.05);
+              border:1px solid var(--line); border-radius:7px; padding:5px 4px; cursor:pointer; transition:.12s}
+  .sys button:hover{background:rgba(255,255,255,.15)}
+  .sys button.on{background:rgba(143,216,255,.18); border-color:var(--acc); color:#fff}
+  select{width:100%; font:inherit; color:var(--txt); background:rgba(16,14,26,.95);
+         border:1px solid var(--line); border-radius:7px; padding:5px 7px}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .btns button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px; cursor:pointer}
+  .btns button:hover{background:rgba(255,255,255,.15)}
+  .btns button.prim{grid-column:1/-1; background:rgba(143,216,255,.20); border-color:var(--acc)}
+  #readout{color:var(--dim); font-size:11px; line-height:1.75; border-top:1px solid var(--line);
+           padding-top:9px; margin-top:13px}
+  #readout b{color:var(--txt); font-weight:500}
+  #readout .hi{color:var(--acc)}
+  #stage{flex:1; display:flex; align-items:center; justify-content:center; padding:18px; min-width:0; position:relative}
+  #cv{max-width:100%; max-height:100%; aspect-ratio:1/1; width:min(100%, calc(100vh - 36px));
+      border-radius:6px; box-shadow:0 26px 70px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.07);
+      cursor:grab; touch-action:none; background:#04030a}
+  #cv.drag{cursor:grabbing}
+  #help{position:absolute; left:34px; bottom:22px; color:var(--dim); font-size:11px; text-shadow:0 1px 4px #000}
+  #help b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>奇异<span>吸引子</span></h1>
+  <div class="sub">STRANGE ATTRACTORS</div>
+
+  <div class="grp">系统</div>
+  <div class="sys" id="sysBox"></div>
+
+  <div class="grp">渲染</div>
+  <select id="selPal"></select>
+  <div class="row"><label>速度</label><b id="vSpeed">1.0×</b></div>
+  <input type="range" id="sSpeed" min="0.1" max="4" step="0.1" value="1">
+  <div class="row"><label>步长 h</label><b id="vStep">0.0050</b></div>
+  <input type="range" id="sStep" min="0.0005" max="0.02" step="0.0005" value="0.005">
+  <div class="row"><label>拖尾</label><b id="vFade">0.06</b></div>
+  <input type="range" id="sFade" min="0.01" max="1" step="0.01" value="0.06">
+  <div class="row"><label>粒子</label><b id="vCount">2400</b></div>
+  <input type="range" id="sCount" min="200" max="8000" step="200" value="2400">
+  <div class="row"><label>缩放</label><b id="vZoom">1.00</b></div>
+  <input type="range" id="sZoom" min="0.3" max="3" step="0.02" value="1">
+  <div class="row"><label>亮度</label><b id="vExp">1.00</b></div>
+  <input type="range" id="sExp" min="0.3" max="2.5" step="0.05" value="1">
+
+  <div class="grp">操作</div>
+  <div class="btns">
+    <button id="bReset" class="prim">⟲ 重新开始</button>
+    <button id="bPause">暂停</button>
+    <button id="bClear">清屏</button>
+    <button id="bSave">保存 PNG</button>
+    <button id="bRand">随机扰动</button>
+  </div>
+
+  <div id="readout">
+    系统 <b id="rSys">Lorenz</b><br>
+    积分步 <b id="rSteps">0</b> · 点 <b id="rPts">0</b><br>
+    外框 <b id="rBox">—</b><br>
+    <span class="hi">拖动旋转 · 滚轮缩放</span>
+  </div>
+</aside>
+
+<div id="stage">
+  <canvas id="cv" width="1024" height="1024"></canvas>
+  <div id="help">同一吸引子上撒下数千个粒子,每个都精确地解同一个微分方程 —— 它们永远不会相交,也永远不会重复</div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   奇异吸引子探索器
+
+   数值:Lorenz / Rössler / Thomas / Aizawa / Halvorsen 等连续系统的
+        Runge-Kutta 4 阶积分,数千条轨道并行推进
+   渲染:三维点云按轨道相机投影,加色混合累积成发光云团,
+        色相由轨道阱(orbit trap)距离调制
+   本文件里所有数学都在纯函数中完成,不含 DOM 依赖,便于无头验证
+   ============================================================ */
+
+// ---------------- 微分方程组 ----------------
+// f(x,y,z,p,o) 把 [dx,dy,dz] 写进预分配的 o —— 避免每次调用都新建数组(这是性能关键)
+const SYSTEMS = {
+  lorenz: {
+    label:"Lorenz", params:{ s:10, r:28, b:8/3 }, h:0.005, scale:0.34, offset:[0,0,25],
+    start:[1,1,20],
+    f:(x,y,z,p,o)=>{ o[0]=p.s*(y-x); o[1]=x*(p.r-z)-y; o[2]=x*y-p.b*z; }
+  },
+  chen: {
+    label:"Chen", params:{ a:35, b:3, c:28 }, h:0.002, scale:0.30, offset:[0,0,21],
+    start:[-3,2,20],
+    f:(x,y,z,p,o)=>{ o[0]=p.a*(y-x); o[1]=(p.c-p.a)*x - x*z + p.c*y; o[2]=x*y - p.b*z; }
+  },
+  rossler: {
+    label:"Rössler", params:{ a:0.2, b:0.2, c:5.7 }, h:0.02, scale:1.15, offset:[0,0,0],
+    start:[1,1,1],
+    f:(x,y,z,p,o)=>{ o[0]=-y-z; o[1]=x+p.a*y; o[2]=p.b+z*(x-p.c); }
+  },
+  aizawa: {
+    label:"Aizawa", params:{ a:0.95, b:0.7, c:0.6, d:3.5, e:0.25, f:0.1 }, h:0.01, scale:1.0, offset:[0,0,0.7],
+    start:[0.1,0,0.6],
+    f:(x,y,z,p,o)=>{
+      const r2 = x*x+y*y;
+      o[0] = (z-p.b)*x - p.d*y;
+      o[1] = (z-p.b)*y + p.d*x;
+      o[2] = p.c + p.a*z - z*z*z/3 - r2*(1 + p.e*z) + p.f*z*x*x*x;
+    }
+  },
+  nosehoover: {
+    label:"Nosé–Hoover", params:{ a:1 }, h:0.01, scale:1.9, offset:[0,0,0],
+    start:[0,5,0],
+    f:(x,y,z,p,o)=>{ o[0]=y; o[1]=-x-y*z; o[2]=p.a*(y*y-1); }
+  },
+  dadras: {
+    label:"Dadras", params:{ a:3, b:2.7, c:1.7, d:2, e:9 }, h:0.008, scale:0.45, offset:[0,0,0],
+    start:[1.1,2.1,-2],
+    f:(x,y,z,p,o)=>{ o[0]=y-p.a*x+p.b*y*z; o[1]=p.c*y-x*z+z; o[2]=p.d*x*y-p.e*z; }
+  }
+};
+
+// ---------------- RK4 ----------------
+// 用模块级临时缓冲,整个积分过程零分配
+const _o1=new Float64Array(3), _o2=new Float64Array(3), _o3=new Float64Array(3), _o4=new Float64Array(3);
+const _k1=new Float64Array(3), _k2=new Float64Array(3), _k3=new Float64Array(3), _k4=new Float64Array(3);
+function rk4(sys, x, y, z, h, out){
+  const f = sys.f, p = sys.params, h2 = h*0.5;
+  f(x, y, z, p, _k1);
+  f(x + h2*_k1[0], y + h2*_k1[1], z + h2*_k1[2], p, _k2);
+  f(x + h2*_k2[0], y + h2*_k2[1], z + h2*_k2[2], p, _k3);
+  f(x + h*_k3[0],  y + h*_k3[1],  z + h*_k3[2],  p, _k4);
+  out[0] = x + h/6*(_k1[0] + 2*_k2[0] + 2*_k3[0] + _k4[0]);
+  out[1] = y + h/6*(_k1[1] + 2*_k2[1] + 2*_k3[1] + _k4[1]);
+  out[2] = z + h/6*(_k1[2] + 2*_k2[2] + 2*_k3[2] + _k4[2]);
+  return out;
+}
+
+// ---------------- 初始条件(可复现) ----------------
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// 在吸引子附近的球壳里撒点(以系统 start 为中心,保证落在混沌不变集上)
+function seedCloud(sys, n, seed, spread){
+  const rnd = mulberry(seed || 1);
+  const R = (spread === undefined ? 1.0 : spread);
+  const c = sys.start || [0,0,0];
+  const px = new Float64Array(n), py = new Float64Array(n), pz = new Float64Array(n);
+  for(let i=0;i<n;i++){
+    // 单位球内均匀取样
+    let x,y,z,d2;
+    do{
+      x = rnd()*2-1; y = rnd()*2-1; z = rnd()*2-1; d2 = x*x+y*y+z*z;
+    }while(d2 > 1 || d2 < 1e-9);
+    px[i] = c[0] + x*R; py[i] = c[1] + y*R; pz[i] = c[2] + z*R;
+  }
+  return { px, py, pz, n };
+}
+// 把所有粒子推进 steps 步(就地修改)
+function advance(sys, cloud, h, steps){
+  const { px, py, pz, n } = cloud;
+  const out = new Float64Array(3);
+  const cx = sys.start ? sys.start[0] : 0, cy = sys.start ? sys.start[1] : 0, cz = sys.start ? sys.start[2] : 0;
+  let escaped = 0;
+  for(let s=0;s<steps;s++){
+    for(let i=0;i<n;i++){
+      rk4(sys, px[i], py[i], pz[i], h, out);
+      // 数值爆炸保护:个别轨道偏离就拉回吸引子附近重来
+      if(!isFinite(out[0]) || !isFinite(out[1]) || !isFinite(out[2]) ||
+         Math.abs(out[0])+Math.abs(out[1])+Math.abs(out[2]) > 1e6){
+        out[0] = cx + 0.1; out[1] = cy; out[2] = cz + 0.1;
+        escaped++;
+      }
+      px[i]=out[0]; py[i]=out[1]; pz[i]=out[2];
+    }
+  }
+  return escaped;
+}
+
+// ---------------- 数学诊断 ----------------
+// 最大 Lyapunov 指数:两条相邻轨道的分离率 λ = (1/T)·Σ ln(d/d0)
+// 混沌系统应给出明显的正 λ。起点可传入(默认在 offset 附近)
+function lyapunov(sys, h, steps, d0, start){
+  d0 = d0 || 1e-8;
+  const st = start || sys.start || [0.1,0,0.1];
+  let x1 = st[0], y1 = st[1], z1 = st[2];
+  // 扰动方向固定为单位向量,每步重新归一化
+  const nx = 1/Math.sqrt(3), ny = nx, nz = nx;
+  let x2 = x1 + d0*nx, y2 = y1 + d0*ny, z2 = z1 + d0*nz;
+  const o1 = new Float64Array(3), o2 = new Float64Array(3);
+  let sum = 0, counted = 0;
+  for(let s=0;s<steps;s++){
+    rk4(sys, x1,y1,z1, h, o1);
+    rk4(sys, x2,y2,z2, h, o2);
+    x1=o1[0]; y1=o1[1]; z1=o1[2];
+    let dx=o2[0]-x1, dy=o2[1]-y1, dz=o2[2]-z1;
+    let d = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    if(!isFinite(d) || d <= 0) break;
+    sum += Math.log(d/d0); counted++;
+    // 重新归一化到 d0
+    const k = d0/d;
+    x2 = x1 + dx*k; y2 = y1 + dy*k; z2 = z1 + dz*k;
+  }
+  if(!counted) return 0;
+  return sum / (counted*h);
+}
+// 盒计数维数:把点云投到 x-y 平面,数覆盖所需方格数
+function boxCount(cloud, lo, hi, size){
+  const { px, py, n } = cloud;
+  const boxes = [
+    { size: size,   set: new Set() },
+    { size: size/2, set: new Set() },
+    { size: size/4, set: new Set() },
+    { size: size/8, set: new Set() }
+  ];
+  for(let i=0;i<n;i++){
+    const x = px[i], y = py[i];
+    if(!isFinite(x)||!isFinite(y)) continue;
+    for(const b of boxes){
+      const gx = Math.floor((x-lo)/b.size), gy = Math.floor((y-lo)/b.size);
+      b.set.add(gx + "," + gy);
+    }
+  }
+  // D = -Δlog N / Δlog ε
+  const pts = boxes.map(b=>({ eps: b.size/(hi-lo), N: b.set.size })).filter(p=>p.N>0);
+  if(pts.length < 2) return 0;
+  let sx=0, sy=0, sxx=0, sxy=0, m=pts.length;
+  for(const p of pts){ const X=Math.log(1/p.eps), Y=Math.log(p.N); sx+=X; sy+=Y; sxx+=X*X; sxy+=X*Y; }
+  const den = m*sxx - sx*sx;
+  if(Math.abs(den) < 1e-12) return 0;
+  return (m*sxy - sx*sy)/den;
+}
+// 快速统计:坐标范围与有限性
+function cloudStats(cloud){
+  const { px, py, pz, n } = cloud;
+  let lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9], bad=0;
+  for(let i=0;i<n;i++){
+    const v=[px[i],py[i],pz[i]];
+    for(let k=0;k<3;k++){
+      if(!isFinite(v[k])){ bad++; continue; }
+      if(v[k]<lo[k]) lo[k]=v[k];
+      if(v[k]>hi[k]) hi[k]=v[k];
+    }
+  }
+  return { lo, hi, bad, n };
+}
+// 分位范围:少数离群轨道会把 min/max 撑得很大,导致画面缩得很小。
+// 用 2%~98% 分位来取景,画面主体才能铺满画布。
+function cloudPercentiles(cloud, p){
+  p = p === undefined ? 0.02 : p;
+  const { px, py, pz, n } = cloud;
+  const lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9];
+  const ax=[px,py,pz];
+  for(let k=0;k<3;k++){
+    // 抽样排序(最多取 4000 个样本),避免每帧排序几万个点
+    const step = Math.max(1, Math.floor(n/4000));
+    const arr = [];
+    for(let i=0;i<n;i+=step) if(isFinite(ax[k][i])) arr.push(ax[k][i]);
+    if(!arr.length) continue;
+    arr.sort((a,b)=>a-b);
+    const i0 = Math.floor(arr.length*p), i1 = Math.min(arr.length-1, Math.ceil(arr.length*(1-p)));
+    lo[k] = arr[i0]; hi[k] = arr[i1];
+  }
+  return { lo, hi };
+}
+
+// ============================================================
+//  以下是浏览器部分
+// ============================================================
+if(typeof document !== "undefined" && document.getElementById("cv")){
+  const cv = document.getElementById("cv"), ctx = cv.getContext("2d", {alpha:false});
+  const CW = 1024, CH = 1024;
+
+  // 调色板:hue 偏移 + 饱和/明度曲线
+  const PALETTES = {
+    "冰蓝":   { base:196, span:60,  sat:88, light:58 },
+    "熔岩":   { base:18,  span:44,  sat:96, light:56 },
+    "极光":   { base:150, span:110, sat:82, light:58 },
+    "霓虹":   { base:290, span:130, sat:96, light:62 },
+    "金箔":   { base:44,  span:26,  sat:74, light:60 },
+    "灰阶":   { base:210, span:12,  sat:10, light:66 }
+  };
+
+  let sysKey = "lorenz";
+  // 每个系统留一份原始参数。sys 只持有副本 —— 原来 sys = SYSTEMS[k] 是同一个对象引用,
+  // "随机扰动"直接改在全局 SYSTEMS 上,而且每次都以上一次的结果为基准累乘,点几下参数就漂到天上
+  const SYS_PARAMS0 = {};
+  for(const k of Object.keys(SYSTEMS)) SYS_PARAMS0[k] = Object.assign({}, SYSTEMS[k].params);
+  const sysCopy = k => Object.assign({}, SYSTEMS[k], { params: Object.assign({}, SYS_PARAMS0[k]) });
+  let sys = sysCopy(sysKey);
+  let cloud = null;
+  let paused = false, steps = 0, drawnPoints = 0;
+  let pal = PALETTES["冰蓝"];
+  let speed = 1, h = sys.h, fade = 0.06, count = 2400, zoom = 1, exposure = 1;
+  // 轨道相机
+  let yaw = 0.6, pitch = 0.35, dist = 1.0;
+  let dragging = false, lastX = 0, lastY = 0;
+
+  function newCloud(seed){
+    cloud = seedCloud(sys, count, seed === undefined ? (Math.random()*1e9)|0 : seed,
+                      sys.seedSpread === undefined ? 0.9 : sys.seedSpread);
+    steps = 0; drawnPoints = 0;
+    resetCanvas();
+  }
+  function resetCanvas(){
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "#04030a";
+    ctx.fillRect(0,0,CW,CH);
+  }
+
+  // 三维 → 屏幕。缩放不再靠估算,而是"先试投一遍样本、量出实际外接框,再定缩放",
+  // 这样无论视角与系统形状如何,主体都正好铺满画布。
+  function makeProjector(){
+    const st = cloud ? cloudPercentiles(cloud, 0.02) : { lo:[-1,-1,-1], hi:[1,1,1] };
+    const spanX = Math.max(st.hi[0]-st.lo[0], 1e-9);
+    const spanY = Math.max(st.hi[1]-st.lo[1], 1e-9);
+    const spanZ = Math.max(st.hi[2]-st.lo[2], 1e-9);
+    const mx = (st.lo[0]+st.hi[0])/2, my = (st.lo[1]+st.hi[1])/2, mz = (st.lo[2]+st.hi[2])/2;
+    const cY = Math.cos(yaw),   sY = Math.sin(yaw);
+    const cP = Math.cos(pitch), sP = Math.sin(pitch);
+    let s = CW*0.44*zoom;
+    if(cloud && cloud.n > 0){
+      // 只做归一化+旋转(不除透视)来量范围,样本最多 240 个点
+      const step = Math.max(1, Math.floor(cloud.n/240));
+      let ex = 0, ey = 0;
+      for(let i=0;i<cloud.n;i+=step){
+        const X = (cloud.px[i]-mx)/spanX, Y = (cloud.py[i]-my)/spanY, Z = (cloud.pz[i]-mz)/spanZ;
+        const x1 =  X*cY + Z*sY;
+        const z1 = -X*sY + Z*cY;
+        const y1 =  Y*cP - z1*sP;
+        if(Math.abs(x1) > ex) ex = Math.abs(x1);
+        if(Math.abs(y1) > ey) ey = Math.abs(y1);
+      }
+      if(ex > 1e-9 && ey > 1e-9) s = Math.min(CW*0.44/ex, CH*0.44/ey) * zoom;
+    }
+    return function(x, y, z, out){
+      let X = (x-mx)*s/spanX, Y = (y-my)*s/spanY, Z = (z-mz)*s/spanZ;
+      let x1 =  X*cY + Z*sY;
+      let z1 = -X*sY + Z*cY;
+      let y1 =  Y*cP - z1*sP;
+      let z2 =  Y*sP + z1*cP;
+      const persp = 1/(1 + z2/(CW*3.2));
+      out[0] = CW/2 + x1*persp;
+      out[1] = CH/2 - y1*persp;
+      out[2] = persp;                    // 深浅用于亮度
+    };
+  }
+
+  const prj = new Float64Array(3);
+  // 色表预计算:每帧为几千个粒子拼 hsla() 字符串是渲染热点,改成查表
+  let LUT = null, LUTKey = "";
+  function buildLUT(){
+    const key = pal.base + "|" + pal.span + "|" + pal.sat;
+    if(LUT && LUTKey === key) return;
+    LUTKey = key;
+    LUT = new Array(72);
+    for(let i=0;i<72;i++){
+      const hue = (pal.base + (i/71)*pal.span) % 360;
+      LUT[i] = "hsl(" + hue.toFixed(0) + "," + pal.sat + "%,68%)";
+    }
+    // 两档亮度(远近)各一份
+    LUT.dim = LUT.map(c => c.replace("68%", "46%"));
+  }
+  function frame(){
+    if(!paused && cloud){
+      // 每帧推进的积分步数:以 60fps 为基准,再乘速度
+      const nSteps = Math.max(1, Math.round(speed * 1.0 * (sys.h/h)));
+      advance(sys, cloud, h, nSteps);
+      steps += nSteps;
+    }
+    if(cloud){
+      buildLUT();
+      // 拖尾淡出
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "rgba(4,3,10," + fade + ")";
+      ctx.fillRect(0,0,CW,CH);
+      // 画粒子(加色)
+      const P = makeProjector();
+      ctx.globalCompositeOperation = "lighter";
+      const { px, py, pz, n } = cloud;
+      const st = cloudPercentiles(cloud, 0.02);
+      const span = Math.max(st.hi[0]-st.lo[0], 1e-6);
+      const invSpan = 1/(span*0.7 + 1e-9);
+      let lastKey = -1;
+      const alphaBase = Math.min(0.85, 0.42*exposure);
+      for(let i=0;i<n;i++){
+        // 轨道阱:到 z 轴的距离决定色相桶
+        const rr = Math.sqrt(px[i]*px[i] + py[i]*py[i]);
+        const trap = Math.min(1, rr*invSpan);
+        P(px[i], py[i], pz[i], prj);
+        if(prj[0]<0||prj[0]>=CW||prj[1]<0||prj[1]>=CH) continue;
+        const near = prj[2] >= 0.92;
+        const bucket = (trap*71)|0;
+        const key = bucket*2 + (near?1:0);
+        if(key !== lastKey){
+          ctx.fillStyle = near ? LUT[bucket] : LUT.dim[bucket];
+          ctx.globalAlpha = alphaBase * (near ? 1.0 : 0.72);
+          lastKey = key;
+        }
+        // 单像素点在 1080p 下几乎看不见 —— 放大到 2px 才看得出是"云"
+        const r = near ? 2.0 : 1.3;
+        ctx.fillRect(prj[0]-r/2, prj[1]-r/2, r, r);
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      drawnPoints += n;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------- 界面 ----------------
+  const sysBox = document.getElementById("sysBox");
+  const sysBtns = {};
+  Object.keys(SYSTEMS).forEach(k=>{
+    const b = document.createElement("button");
+    b.textContent = SYSTEMS[k].label;
+    b.onclick = ()=>{ setSystem(k); };
+    sysBox.appendChild(b); sysBtns[k] = b;
+  });
+  function setSystem(k){
+    sysKey = k; sys = sysCopy(k);
+    h = sys.h; sStep.value = h; vStep.textContent = h.toFixed(4);
+    Object.keys(sysBtns).forEach(q=>sysBtns[q].classList.toggle("on", q===k));
+    rSys.textContent = sys.label;
+    newCloud();
+  }
+  const selPal = document.getElementById("selPal");
+  Object.keys(PALETTES).forEach(k=>{
+    const o=document.createElement("option"); o.value=k; o.textContent=k; selPal.appendChild(o);
+  });
+  selPal.value = "冰蓝";
+  selPal.onchange = ()=>{ pal = PALETTES[selPal.value]; };
+
+  const $ = id => document.getElementById(id);
+  const sSpeed=$("sSpeed"), vSpeed=$("vSpeed"), sStep=$("sStep"), vStep=$("vStep"),
+        sFade=$("sFade"), vFade=$("vFade"), sCount=$("sCount"), vCount=$("vCount"),
+        sZoom=$("sZoom"), vZoom=$("vZoom"), sExp=$("sExp"), vExp=$("vExp"),
+        rSys=$("rSys"), rSteps=$("rSteps"), rPts=$("rPts"), rBox=$("rBox");
+  sSpeed.oninput = ()=>{ speed=+sSpeed.value; vSpeed.textContent = speed.toFixed(1)+"×"; };
+  sStep.oninput  = ()=>{ h=+sStep.value; vStep.textContent = h.toFixed(4); };
+  sFade.oninput  = ()=>{ fade=+sFade.value; vFade.textContent = fade.toFixed(2); };
+  sCount.oninput = ()=>{ count=+sCount.value; vCount.textContent = count; newCloud(); };
+  sZoom.oninput  = ()=>{ zoom=+sZoom.value; vZoom.textContent = zoom.toFixed(2); };
+  sExp.oninput   = ()=>{ exposure=+sExp.value; vExp.textContent = exposure.toFixed(2); };
+
+  $("bReset").onclick = ()=>newCloud();
+  $("bClear").onclick = ()=>resetCanvas();
+  const bPause = $("bPause");
+  bPause.onclick = ()=>{ paused=!paused; bPause.classList.toggle("on",paused); bPause.textContent = paused?"继续":"暂停"; };
+  $("bRand").onclick = ()=>{
+    // 在原参数附近做一次随机扰动:同一族系统的不同个体。
+    // 基准取原始参数,不取上一次扰动的结果 —— 否则会一路累乘
+    const base = SYS_PARAMS0[sysKey];
+    for(const k of Object.keys(base)){
+      sys.params[k] = base[k] * (1 + (Math.random()-0.5)*0.22);
+    }
+    newCloud();
+  };
+  $("bSave").onclick = ()=>{
+    cv.toBlob(b=>{
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(b);
+      a.download = "attractor-"+sysKey+"-"+steps+".png";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    }, "image/png");
+  };
+
+  // 拖动旋转 / 滚轮缩放
+  cv.addEventListener("pointerdown", e=>{
+    dragging=true; lastX=e.clientX; lastY=e.clientY; cv.classList.add("drag");
+    try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  cv.addEventListener("pointermove", e=>{
+    if(!dragging) return;
+    const dx=e.clientX-lastX, dy=e.clientY-lastY;
+    lastX=e.clientX; lastY=e.clientY;
+    yaw += dx*0.006;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch + dy*0.006));
+  });
+  addEventListener("pointerup", ()=>{ dragging=false; cv.classList.remove("drag"); });
+  cv.addEventListener("wheel", e=>{
+    e.preventDefault();
+    zoom = Math.max(0.3, Math.min(3, zoom * (e.deltaY<0 ? 1.08 : 1/1.08)));
+    sZoom.value = zoom; vZoom.textContent = zoom.toFixed(2);
+  }, {passive:false});
+  addEventListener("keydown", e=>{
+    const k=(e.key||"").toLowerCase();
+    if(k===" "){ e.preventDefault(); bPause.click(); }
+    else if(k==="r") newCloud();
+    else if(k==="s") $("bSave").click();
+  });
+
+  // 读数
+  setInterval(()=>{
+    rSteps.textContent = steps.toLocaleString();
+    rPts.textContent = (steps*count/1e6).toFixed(1) + "M";
+    if(cloud){
+      const st = cloudStats(cloud);
+      const f = v => (Math.abs(v)>=1000 ? v.toExponential(1) : v.toFixed(1));
+      rBox.textContent = "[" + f(st.lo[0]) + "," + f(st.hi[0]) + "] × [" + f(st.lo[1]) + "," + f(st.hi[1]) + "]";
+    }
+  }, 400);
+
+  setSystem("lorenz");
+  requestAnimationFrame(frame);
+}
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">奇异吸引子 · Strange Attractors</h2>
+    <p class="hp-lead">六种经典混沌系统。轨迹永远不会重复、永远不逃出去，被吸引到一片面积为零却无限复杂的形状上。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>确定性混沌</b>　方程完全确定、没有随机项，但初值差 10⁻⁹ 的轨迹会以指数速度拉开：分离速度 ~ e^(λt)，λ 就是李雅普诺夫指数。所以长期预测在物理上不可能 —— 这就是'蝴蝶效应'的数学版本。</p><p><b>吸引子 = 相空间里的归宿</b>　耗散系统会把所有轨迹吸向一个低维集合。不动点、极限环是'正常'吸引子；混沌系统则吸向分形吸引子（奇异吸引子）：面积（体积）为零、长度（维度）无限。洛伦兹吸引子的豪斯多夫维度约 2.06，介于面与体之间。</p><p><b>RK4 积分</b>　四阶龙格-库塔每步算四次导数、加权平均，局部误差 O(h⁵)，比欧拉法稳得多。混沌系统对积分误差也敏感，所以步长必须小 —— 这也算是'混沌要求你更守规矩'的黑色幽默。</p><p><b>六组方程</b>　洛伦兹（对流）；Rössler（卷饼状，最简单的一维拉伸一维折叠）；Aizawa（气泡里的湍流）；Thomas（正弦耦合，丝带）；Halvorsen（三轴对称吸引子）；Chen（洛伦兹的高维表亲）。它们的共同结构都是'局部拉伸 + 整体折叠' —— 拉伸制造敏感性，折叠让它不跑掉。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左侧切换系统；「随机参数」在基准方程上做 ±11% 的扰动生成新变体。</li><li>拖动旋转视角 / 滚轮缩放（部分系统支持）。</li><li>「重播」清屏重新描线；右侧读数显示李雅普诺夫指数估计与维度。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>把视角转到侧面：洛伦兹吸引子其实是两片薄饼，不是球。</li><li>同一条轨迹跑久了，你会在同一条线上走出两条不同路径 —— 这就是混沌不可预测的直观样子。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>熵之庭院 · Garden of Entropy</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:rgba(22,27,38,.82); --line:rgba(255,255,255,.08);
+    --txt:#dbe2ee; --dim:#7f8ba3; --acc:#7ee0c0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 20% -10%,#16202e 0%,#0b0e14 60%);
+    color:var(--txt); font:13px/1.5 "Cascadia Mono","Consolas",ui-monospace,monospace;
+    display:flex; height:100vh; overflow:hidden; user-select:none;
+  }
+  /* 左栏 */
+  #side{
+    width:236px; flex:0 0 236px; height:100%; overflow-y:auto;
+    background:var(--panel); border-right:1px solid var(--line);
+    backdrop-filter:blur(14px); padding:14px 12px 24px;
+  }
+  #side::-webkit-scrollbar{width:8px}
+  #side::-webkit-scrollbar-thumb{background:#2a3344; border-radius:4px}
+  h1{font-size:15px; letter-spacing:.12em; font-weight:600}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim); font-size:10.5px; letter-spacing:.06em; margin:2px 0 14px}
+  .grp{color:var(--dim); font-size:10px; letter-spacing:.16em; margin:14px 0 6px; text-transform:uppercase}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:5px}
+  .mat{
+    display:flex; align-items:center; gap:6px; cursor:pointer;
+    background:rgba(255,255,255,.035); border:1px solid transparent;
+    border-radius:6px; padding:5px 6px; transition:.12s; font-size:11.5px;
+    white-space:nowrap; overflow:hidden;
+  }
+  .mat:hover{background:rgba(255,255,255,.09)}
+  .mat.on{background:rgba(126,224,192,.14); border-color:var(--acc); color:#fff}
+  .dot{width:11px; height:11px; border-radius:3px; flex:0 0 11px; box-shadow:0 0 6px rgba(0,0,0,.6)}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0}
+  input[type=range]{-webkit-appearance:none; width:100%; height:3px; background:#2a3344; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:13px; height:13px; border-radius:50%; background:var(--acc); cursor:pointer}
+  button{
+    font:inherit; color:var(--txt); background:rgba(255,255,255,.05);
+    border:1px solid var(--line); border-radius:6px; padding:6px 8px; cursor:pointer; transition:.12s;
+  }
+  button:hover{background:rgba(255,255,255,.13)}
+  button.on{background:rgba(126,224,192,.16); border-color:var(--acc)}
+  #stats{color:var(--dim); font-size:11px; line-height:1.7; border-top:1px solid var(--line); padding-top:9px; margin-top:14px}
+  #stats b{color:var(--txt); font-weight:500}
+  .kbd{color:#8ea0bb; background:rgba(255,255,255,.05); border-radius:3px; padding:0 3px}
+  /* 画布 */
+  #stage{flex:1; position:relative; display:flex; align-items:center; justify-content:center; padding:16px; min-width:0}
+  canvas{
+    display:block; width:100%; height:100%; object-fit:contain;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    border-radius:10px; box-shadow:0 24px 70px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.06);
+    cursor:crosshair; touch-action:none;
+  }
+  #brush{
+    position:absolute; border:1px solid rgba(255,255,255,.5); border-radius:50%;
+    pointer-events:none; transform:translate(-50%,-50%); opacity:0; mix-blend-mode:difference;
+  }
+  #hud{position:absolute; left:26px; bottom:22px; color:var(--dim); font-size:11px; pointer-events:none; text-shadow:0 1px 3px #000}
+  #hud b{color:var(--acc)}
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>熵之<span>庭院</span></h1>
+  <div class="sub">GARDEN OF ENTROPY</div>
+
+  <div class="grp">粉末</div>
+  <div class="grid" id="g1"></div>
+  <div class="grp">固体</div>
+  <div class="grid" id="g2"></div>
+  <div class="grp">液体</div>
+  <div class="grid" id="g3"></div>
+  <div class="grp">能量 / 生命</div>
+  <div class="grid" id="g4"></div>
+
+  <div class="grp">笔刷</div>
+  <div class="row"><span>大小 <b id="bsz">6</b></span></div>
+  <input type="range" id="brushRange" min="1" max="40" value="6">
+
+  <div class="grp">控制</div>
+  <div class="grid">
+    <button id="bPause">暂停</button>
+    <button id="bStep">单步</button>
+    <button id="bGrav" class="on">重力</button>
+    <button id="bClear">清空</button>
+  </div>
+
+  <div id="stats"></div>
+  <div class="grp">快捷键</div>
+  <div style="color:var(--dim); font-size:11px">
+    <span class="kbd">1</span>~<span class="kbd">9</span><span class="kbd">0</span> 选材质 ·
+    <span class="kbd">X</span> 橡皮 · <span class="kbd">[</span><span class="kbd">]</span> 笔刷<br>
+    <span class="kbd">空格</span> 暂停 · <span class="kbd">N</span> 单步 · <span class="kbd">G</span> 重力<br>
+    <span class="kbd">C</span> 清空 · 滚轮缩放笔刷 · 右键拖动即擦除
+  </div>
+</aside>
+
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="brush"></div>
+  <div id="hud">沙 <b id="hSand">0</b> · 水 <b id="hWater">0</b> · 火 <b id="hFire">0</b> · <b id="hFps">--</b> fps</div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   熵之庭院 — falling-sand 细胞自动机
+   每格状态:id(材质) + life(寿命 / 生长度) + vv(亮度扰动,用于颗粒感)
+   moved:本 tick 已被搬运过的格子,保证每格每 tick 只处理一次
+   ============================================================ */
+
+// ---------- 材质表 ----------
+const E = { A:0, STEEL:1, SAND:2, STONE:3, WOOD:4, ICE:5, WATER:6, OIL:7,
+            ACID:8, LAVA:9, FIRE:10, SMOKE:11, STEAM:12, PLANT:13, SEED:14 };
+const NAME = ["真空","钢","沙","石","木","冰","水","油","酸","岩浆","火","烟","蒸汽","藤","种"];
+const COL  = ["#0a0d13","#9aa6b8","#d6b25f","#6d7580","#5a4630","#a8e8ff","#3f7fd8",
+              "#6d5a2a","#a8e05a","#ff7a24","#ffb43a","#5e6572","#c6d8e4","#4fbe63","#3d3324"];
+const GROUPS = [
+  [[E.SAND,"沙"],[E.STONE,"石"],[E.SEED,"种"]],
+  [[E.STEEL,"钢"],[E.WOOD,"木"],[E.ICE,"冰"]],
+  [[E.WATER,"水"],[E.OIL,"油"],[E.ACID,"酸"],[E.LAVA,"岩浆"]],
+  [[E.FIRE,"火"],[E.PLANT,"藤"],[E.SMOKE,"烟"],[E.STEAM,"蒸汽"]]
+];
+const KIND = ["void","solid","powder","powder","solid","solid","liquid","liquid",
+              "liquid","liquid","gas","gas","gas","plant","powder"];
+const FLAM = { [E.OIL]:1, [E.WOOD]:1, [E.PLANT]:1, [E.SEED]:1 };
+const DISSOLVE = { [E.SAND]:1, [E.STONE]:1, [E.STEEL]:1, [E.PLANT]:1 };
+
+// ---------- 网格 ----------
+const CELL = 4;
+let cols=0, rows=0, N=0;
+let id, life, vv, live, moved;
+
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d", {alpha:false});
+let buf, bufCtx, img, u8;
+
+function buildGrid(w,h){
+  cols = Math.max(80, Math.floor(w/CELL));
+  rows = Math.max(60, Math.floor(h/CELL));
+  N = cols*rows;
+  id=new Uint8Array(N); life=new Uint8Array(N); vv=new Uint8Array(N);
+  live=new Uint8Array(N); moved=new Uint8Array(N);
+  cv.width = cols*CELL; cv.height = rows*CELL;
+  buf = document.createElement("canvas"); buf.width=cols; buf.height=rows;
+  bufCtx = buf.getContext("2d");
+  img = bufCtx.createImageData(cols, rows);
+  u8 = img.data;
+  for(let i=0;i<N;i++) u8[i*4+3]=255;
+}
+
+function set(i, t, l){
+  id[i]=t; life[i]= l===undefined ? 0 : l;
+  vv[i] = (Math.random()*40)|0;
+}
+
+// ---------- 初始场景 ----------
+let grav = true;
+function reset(){
+  id.fill(0); life.fill(0); vv.fill(0);
+  const R = Math.random;
+  const gy = rows-4;
+  for(let y=gy;y<rows;y++) for(let x=0;x<cols;x++) set(y*cols+x, E.STEEL);   // 钢底
+  for(let x=0;x<cols;x++) set((gy-1)*cols+x, x%7===0?E.STONE:E.SAND);
+  for(let x=0;x<cols;x++){                                                    // 地形起伏
+    const h = (Math.sin(x*0.055)*2.2 + Math.sin(x*0.017+1.3)*4 + Math.sin(x*0.21)*1.1) + 6;
+    for(let y=Math.floor(gy-2-h); y<gy-1; y++) if(y>=0) set(y*cols+x, R()<0.86?E.SAND:E.STONE);
+  }
+  const pool = (x0,x1,t,top)=>{ for(let x=x0;x<x1;x++) for(let y=top;y<gy-1;y++) set(y*cols+x, t); };
+  pool(6, 34, E.WATER, gy-14);                                    // 左侧水塘
+  pool(cols-40, cols-10, E.LAVA, gy-9);                           // 右侧岩浆池
+  for(let x=36;x<52;x++) for(let y=gy-19;y<gy-13;y++) set(y*cols+x, E.ICE);   // 冰崖
+  for(let x=60;x<96;x++) set((gy-24)*cols+x, E.WOOD);             // 木架
+  for(let x=64;x<92;x+=3) set((gy-23)*cols+x, E.SEED);            // 挂一串种子
+  for(let x=100;x<128;x++) for(let y=gy-6;y<gy-1;y++) set(y*cols+x, E.OIL);   // 油层
+}
+
+// ---------- 物理 ----------
+const rand = Math.random;
+let frame = 0;
+let fireCount = 0;
+const seedsSpawn = [];        // tick 末尾统一写入(新火/新藤),避免同一 tick 内的读写撕裂
+
+function swapCell(a,b){
+  let t=id[a]; id[a]=id[b]; id[b]=t;
+  let l=life[a]; life[a]=life[b]; life[b]=l;
+  let v=vv[a]; vv[a]=vv[b]; vv[b]=v;
+}
+function move(a,b){
+  id[b]=id[a]; life[b]=life[a]; vv[b]=vv[a];
+  id[a]=0; life[a]=0; vv[a]=0;
+}
+function isEmpty(t){ return t===E.A || t===E.SMOKE || t===E.STEAM || t===E.FIRE; }
+function dens(t){
+  switch(t){ case E.STEEL:return 100; case E.STONE:return 90; case E.ICE:return 80;
+    case E.SAND:return 70; case E.SEED:return 65; case E.LAVA:return 60; case E.WATER:return 40;
+    case E.ACID:return 38; case E.OIL:return 30; default:return 0; }
+}
+// 延迟队列里被认可的"相变"(允许覆盖非空格,总量不变):酸蚀固体、冰化水、水汽化、燃烧
+function isDestructive(from, to){
+  if(from===to) return true;
+  if(from===E.A) return true;                       // 空位随便写
+  if(FLAM[from]) return true;                       // 可燃物遇火/岩浆 → 燃烧或成烟
+  if(to===E.SMOKE) return DISSOLVE[from]===1;        // 只有"被腐蚀"才允许变烟
+  if(to===E.WATER) return from===E.ICE || from===E.STEAM;
+  if(to===E.STEAM) return from===E.WATER;
+  if(to===E.ICE) return from===E.WATER;
+  return false;
+}
+// 位移语义:0 = 不能动,1 = 搬进真空格,2 = 与"更轻的东西"交换(把对方挤开)
+// 关键:进入"非真空"格子必须用交换,直接覆盖会凭空消灭粒子(质量不守恒)
+// 注意 FIRE/SMOKE/STEAM 虽然观感是"空"的,但它们是实打实的粒子,不能当真空覆盖掉
+function disp(self, t){
+  if(t===E.A) return 1;
+  if(isEmpty(t)) return 2;                // 气体/火 → 交换,把它挤到后面去
+  if(KIND[t]!=="liquid") return 0;
+  if(dens(self) > dens(t)) return 2;      // 比它重 → 沉下去(交换)
+  return 0;
+}
+function denser(a,b){ return dens(a) > dens(b); }
+
+function step(){
+  live.set(id);      // 本 tick 起始快照:邻居判断用
+  moved.fill(0);
+  frame++;
+  fireCount = 0;
+  seedsSpawn.length = 0;
+  const dirFlip = (frame & 1) === 0;
+
+  // 统一位移入口:两端都打上 moved 标记
+  const mv = (a,b) => { move(a,b); moved[a]=1; moved[b]=1; };
+  const sw = (a,b) => { swapCell(a,b); moved[a]=1; moved[b]=1; };
+  // 按位移语义执行
+  const put2 = (self, a, b) => { const d = disp(self, id[b]); if(d===1) mv(a,b); else if(d===2) sw(a,b); return d; };
+
+  for(let y=rows-1; y>=0; y--){
+    const ltr = ((y + frame) & 1) === 0;
+    for(let n=0; n<cols; n++){
+      const x = ltr ? n : cols-1-n;
+      const i = y*cols+x;
+      if(moved[i]) continue;
+      const t = id[i];
+      if(t===E.A) continue;
+      const below = y+1<rows ? i+cols : -1;
+      const bT = below<0 ? E.STEEL : id[below];
+      const above = y>0 ? i-cols : -1;
+
+      switch(t){
+        case E.SAND: case E.SEED: case E.STONE: {
+          if(below>=0 && put2(t, i, below)) break;                       // 落 / 沉进更轻的液体
+          if(grav){
+            const d = dirFlip?1:-1;
+            const dl = (x-d>=0 && y+1<rows) ? below-d : -1;
+            const dr = (x+d<cols && y+1<rows) ? below+d : -1;
+            const o1 = dl>=0? rand()<0.5 : false;
+            const a = o1?dl:dr, b = o1?dr:dl;
+            if(a>=0 && put2(t, i, a)) break;
+            if(b>=0 && put2(t, i, b)) break;
+          }
+          // 种子:遇水或潮土就发芽,太干太久会枯
+          if(t===E.SEED){
+            let wet=false;
+            for(let r=1;r<=3 && !wet;r++) for(let dx=-r;dx<=r;dx++){
+              const xx=x+dx, yy=y+r;
+              if(xx<0||xx>=cols||yy>=rows) continue;
+              const j=yy*cols+xx;
+              if(id[j]===E.WATER||id[j]===E.ACID){ wet=true; break; }
+            }
+            if(!wet){ for(const j of [i-1,i+1,above]) if(j>=0&&j<N&&id[j]===E.WATER){ wet=true; break; } }
+            const onSoil = (y+1<rows && (bT===E.SAND||bT===E.STONE)) || (y+1>=rows);
+            const p = wet ? 0.5 : (onSoil ? 0.008 : 0);
+            if(p>0 && rand()<p){ id[i]=E.PLANT; life[i]=200; }
+            else if(!wet && !onSoil && life[i]>200){ if(rand()<0.02){ id[i]=E.A; life[i]=0; } }
+          }
+          // 沙被水冲刷时偶尔互换,堆沙会显得会流
+          if(t===E.SAND && below>=0 && bT===E.WATER && rand()<0.05) sw(i,below);
+          break;
+        }
+        case E.WATER: {
+          // 水不主动下钻油里 —— 分层交给"油上浮"单向完成,避免两者互相换位来回抖
+          if(below>=0 && put2(t, i, below)) break;                          // 落进空位,或与更轻的液体换位
+          const d = dirFlip?1:-1;
+          let done=false;
+          for(const s of [d,-d]){
+            if((s>0 && x+1<cols)||(s<0 && x-1>=0)){
+              const j=i+s;
+              if(put2(t, i, j)){ done=true; break; }
+            }
+          }
+          if(done) break;
+          break;
+        }
+        case E.OIL: {
+          // 油比水轻:优先与"更重的液体/油"向上换位,让它能成片浮起来(不能顶穿固体)
+          const aT = above>=0 ? id[above] : E.STEEL;
+          const buoy = aT===E.OIL || (KIND[aT]==="liquid" && denser(aT, E.OIL));
+          if(above>=0 && buoy && rand()<0.8){ sw(i,above); break; }
+          if(below>=0 && put2(t, i, below)) break;                          // 落进空位
+          const d = rand()<0.5?1:-1;
+          if((d>0&&x+1<cols)||(d<0&&x-1>=0)){
+            const j=i+d;
+            if(put2(t, i, j)) break;
+          }
+          break;
+        }
+        case E.ACID: {
+          // 先腐蚀(化学优先级高于流动),否则酸会一路流走、什么都溶不掉
+          for(const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]){
+            const xx=x+dx, yy=y+dy;
+            if(xx<0||xx>=cols||yy<0||yy>=rows) continue;
+            const jj=yy*cols+xx;
+            if(DISSOLVE[id[jj]] && rand()<0.25){
+              seedsSpawn.push(jj, rand()<0.6?E.SMOKE:E.A, 0);   // 被吃掉的固体变成烟(或直接消失)
+              if(rand()<0.5) id[i]=E.A;                          // 酸有几率被消耗
+              break;
+            }
+          }
+          if(id[i]!==E.ACID) break;
+          if(below>=0 && put2(t, i, below)) break;
+          const d = rand()<0.5?1:-1;
+          if((d>0&&x+1<cols)||(d<0&&x-1>=0)){
+            const j=i+d;
+            if(put2(t, i, j)) break;
+          }
+          break;
+        }
+        case E.LAVA: {
+          // 遇水:水被烧成蒸汽、岩浆自己凝固成黑曜石(石头)。这是就地相变,
+          // 必须当场写 id,不能走延迟队列 —— 水这一 tick 会流走,延迟到提交时
+          // 再写就会往空格里凭空补一份蒸汽,越烧水越多(质量不守恒)。
+          let cooled = false;
+          for(const [dx,dy] of [[0,-1],[0,1],[1,0],[-1,0]]){
+            const xx=x+dx, yy=y+dy;
+            if(xx<0||xx>=cols||yy<0||yy>=rows) continue;
+            const j=yy*cols+xx, t2=id[j];
+            if(t2===E.WATER && rand()<0.22){                  // 0.22 ≈ 每秒约 3 成概率
+              id[j]=E.STEAM; life[j]=0; vv[j]=(Math.random()*40)|0;
+              id[i]=E.STONE; life[i]=0; vv[i]=(Math.random()*40)|0;
+              cooled = true; break;
+            }
+            if(FLAM[t2] && rand()<0.35){ id[j]=E.FIRE; life[j]=0; continue; }
+            if(t2===E.ICE && rand()<0.5){ id[j]=E.WATER; life[j]=0; }
+          }
+          if(cooled) break;                                   // 这一格已经是石头了
+          // 岩浆也是液体,必须受重力:先往下落(黏稠,偶尔滞一格),
+          // 再沿下方斜面滑,最后才横向摊开 —— 否则岩浆会挂在半空
+          if(below>=0 && rand()<0.9 && put2(t, i, below)) break;
+          const d = dirFlip?1:-1;
+          const dl = (x-d>=0 && y+1<rows) ? below-d : -1;
+          const dr = (x+d<cols && y+1<rows) ? below+d : -1;
+          if(dl>=0 && rand()<0.7 && put2(t, i, dl)) break;
+          if(dr>=0 && rand()<0.7 && put2(t, i, dr)) break;
+          if(rand()<0.5){                                     // 黏稠 → 横向慢
+            const j=i+d;
+            if(((d>0&&x+1<cols)||(d<0&&x-1>=0)) && put2(t, i, j)) break;
+          }
+          break;
+        }
+        case E.FIRE: {
+          fireCount++;
+          if(life[i]>=14){ id[i] = rand()<0.45 ? E.SMOKE : E.A; life[i]=0; break; }
+          id[i]=E.FIRE; life[i]=life[i]+1;
+          for(const [dx,dy] of [[0,-1],[0,1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]]){
+            const xx=x+dx, yy=y+dy;
+            if(xx<0||xx>=cols||yy<0||yy>=rows) continue;
+            const j=yy*cols+xx, t2=id[j];
+            if(FLAM[t2] && rand()<0.34){ id[j]=E.FIRE; life[j]=0; continue; }
+            if(t2===E.ICE && rand()<0.30){ id[j]=E.WATER; life[j]=0; }
+            else if(t2===E.WATER && rand()<0.035){ id[j]=E.STEAM; life[j]=0; }  // 就地相变,别走队列
+          }
+          break;
+        }
+        case E.SMOKE: case E.STEAM: {
+          const rise = t===E.STEAM ? 0.85 : 0.70;
+          const up=(y-1)*cols+x;
+          let slid = false;
+          // 只往"能进去"的格子走:真空直接搬,另一种气体就交换(原来直接 mv
+          // 会覆盖掉上面那格的气体,越飘越少)
+          if(y>0 && isEmpty(id[up]) && rand()<rise){ put2(t,i,up); slid = true; }
+          else {
+            const d = rand()<0.5?1:-1;
+            if((d>0&&x+1<cols)||(d<0&&x-1>=0)){
+              const j=i+d; if(isEmpty(id[j]) && rand()<0.55){ put2(t,i,j); slid = true; }
+            }
+          }
+          if(t===E.SMOKE && rand()<0.006) id[i]=E.A;
+          // 冷凝只发生在"没动的那一格"上:动过之后 id[i] 已经是空位,
+          // 再往里写水就是凭空造水(原来水越烧越多的另一半原因)
+          if(t===E.STEAM && !slid && (y<5 || rand()<0.0025)) id[i]=E.WATER;
+          break;
+        }
+        case E.PLANT: {
+          if(rand()<0.05){                                    // 生长
+            let water=false;
+            for(const j of [i-1,i+1,i-cols,i+cols]) if(j>=0&&j<N&&(id[j]===E.WATER||id[j]===E.ACID)) water=true;
+            const tries = water?6:2;
+            for(let k=0;k<tries;k++){
+              const dx=(rand()*3|0)-1, dy=(rand()*3|0)-1;
+              const xx=x+dx, yy=y+dy;
+              if(xx<0||xx>=cols||yy<0||yy>=rows) continue;
+              const j=yy*cols+xx;
+              if(id[j]===E.A){ seedsSpawn.push(j, E.PLANT, 200); break; }
+            }
+          }
+          if(rand()<0.0006) id[i]=E.A;                        // 衰老
+          break;
+        }
+        case E.ICE: {
+          if(rand()<0.0025){                                  // 冰会缓慢冻结旁边的水
+            const d=rand()<0.5?1:-1;
+            if((d>0&&x+1<cols)||(d<0&&x-1>=0)){
+              const j=i+d;
+              if(id[j]===E.WATER) seedsSpawn.push(j, E.ICE, 0);
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // 提交延迟生成 —— 只允许"空位"和"被认可的相变",其它一律丢弃(防止凭空消灭粒子)
+  for(let k=0;k<seedsSpawn.length;k+=3){
+    const j=seedsSpawn[k], t=seedsSpawn[k+1], cur=id[j];
+    if(!isDestructive(cur, t)) continue;
+    id[j]=t; life[j]=seedsSpawn[k+2]||0;
+    if(t===E.FIRE) fireCount++;
+  }
+  for(let i=0;i<N;i++) if(id[i]===E.A) life[i]=0;
+}
+
+// ---------- 渲染 ----------
+function render(){
+  const d=u8;
+  let nSand=0,nWater=0,nFire=0;
+  for(let i=0;i<N;i++){
+    const t=id[i];
+    if(t===E.SAND) nSand++; else if(t===E.WATER) nWater++; else if(t===E.FIRE) nFire++;
+    const o=i*4;
+    if(t===E.A){ d[o]=10; d[o+1]=13; d[o+2]=19; continue; }
+    const hex=COL[t];
+    let r=parseInt(hex.substr(1,2),16), g=parseInt(hex.substr(3,2),16), b=parseInt(hex.substr(5,2),16);
+    const amt = (vv[i]-20)*1.3;                 // 每格固定的亮度扰动 → 颗粒感
+    if(t===E.FIRE) r=Math.min(255,r*(1+(life[i]%3)*0.18)), g=Math.min(255,g*(1+(life[i]%3)*0.18));
+    d[o]  = Math.max(0,Math.min(255, r+amt));
+    d[o+1]= Math.max(0,Math.min(255, g+amt));
+    d[o+2]= Math.max(0,Math.min(255, b+amt));
+  }
+  bufCtx.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(buf,0,0,cv.width,cv.height);
+  hudSand.textContent=nSand; hudWater.textContent=nWater; hudFire.textContent=nFire;
+}
+
+// ---------- 主循环 ----------
+let running=true, acc=0, last=performance.now(), fpsAcc=0, fpsN=0;
+function loop(now){
+  let dt=now-last; last=now; if(dt>100) dt=100;
+  fpsAcc+=dt; fpsN++;
+  if(fpsN>=20){ hudFps.textContent=(1000/(fpsAcc/fpsN)).toFixed(0); fpsAcc=0; fpsN=0; }
+  if(running){
+    acc+=dt;
+    let guard=0;
+    while(acc>=16.67 && guard++<4){ step(); acc-=16.67; }
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ---------- 交互 ----------
+let cur=E.SAND, brush=6, painting=false, px=-1, py=-1, erase=false;
+const brushEl=document.getElementById("brush");
+
+function paint(cx,cy){
+  const t = erase?E.A:cur, R=Math.max(1,brush);
+  for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+    if(dx*dx+dy*dy > R*R) continue;
+    const x=cx+dx, y=cy+dy;
+    if(x<0||x>=cols||y<0||y>=rows) continue;
+    const i=y*cols+x;
+    if(t===E.A){ id[i]=0; life[i]=0; continue; }
+    if(id[i]!==E.A && rand()<0.85) continue;    // 不全部覆盖,保留原有纹理
+    set(i,t,0);
+  }
+}
+function line(x0,y0,x1,y1){
+  const n=Math.max(Math.abs(x1-x0),Math.abs(y1-y0));
+  for(let k=0;k<=n;k++) paint(Math.round(x0+(x1-x0)*k/n), Math.round(y0+(y1-y0)*k/n));
+}
+function toCell(ev){
+  const r=cv.getBoundingClientRect();
+  const sx=cv.width/r.width, sy=cv.height/r.height;
+  return [ Math.floor((ev.clientX-r.left)*sx/CELL), Math.floor((ev.clientY-r.top)*sy/CELL) ];
+}
+cv.addEventListener("pointerdown", e=>{
+  painting=true; erase = (e.button===2) || e.altKey;
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  const [x,y]=toCell(e); px=x; py=y; paint(x,y); updateBrush(e);
+});
+cv.addEventListener("pointermove", e=>{
+  updateBrush(e);
+  if(!painting){ const [x,y]=toCell(e); px=x; py=y; return; }
+  const [x,y]=toCell(e);
+  if(x===px&&y===py) return;
+  line(px,py,x,y); px=x; py=y;
+});
+addEventListener("pointerup", ()=>{ painting=false; erase=false; });
+cv.addEventListener("contextmenu", e=>e.preventDefault());
+function updateBrush(e){
+  const r=cv.getBoundingClientRect();
+  const sc=r.width/cv.width;
+  brushEl.style.left=(e.clientX-r.left)+"px";
+  brushEl.style.top=(e.clientY-r.top)+"px";
+  brushEl.style.width = brushEl.style.height = (brush*2*CELL*sc)+"px";
+  brushEl.style.opacity = .9;
+}
+cv.addEventListener("pointerleave", ()=>{ brushEl.style.opacity=0; });
+cv.addEventListener("wheel", e=>{
+  e.preventDefault();
+  brush = Math.min(40, Math.max(1, brush + (e.deltaY<0?1:-1)));
+  brushRange.value=brush; bsz.textContent=brush;
+}, {passive:false});
+
+// ---------- UI ----------
+const bsz=document.getElementById("bsz"), brushRange=document.getElementById("brushRange");
+const hudSand=document.getElementById("hSand"), hudWater=document.getElementById("hWater"),
+      hudFire=document.getElementById("hFire"), hudFps=document.getElementById("hFps");
+const boxes=[document.getElementById("g1"),document.getElementById("g2"),document.getElementById("g3"),
+             document.getElementById("g4")];
+const btns={};
+const order=[];
+GROUPS.forEach((grp,gi)=>{
+  grp.forEach(([t,label])=>{
+    if(order.indexOf(t)<0) order.push(t);
+    const b=document.createElement("div");
+    b.className="mat"; b.dataset.t=t;
+    b.innerHTML='<i class="dot" style="background:'+COL[t]+'"></i>'+label;
+    b.onclick=()=>select(t);
+    boxes[gi].appendChild(b);
+    btns[t]=b;
+  });
+});
+function select(t){
+  cur=t;
+  for(const k in btns) btns[k].classList.toggle("on", +k===t);
+}
+brushRange.oninput=()=>{ brush=+brushRange.value; bsz.textContent=brush; };
+const bPause=document.getElementById("bPause");
+bPause.onclick=()=>{
+  running=!running;
+  bPause.textContent = running ? "暂停" : "继续";
+  bPause.classList.toggle("on", !running);
+};
+document.getElementById("bStep").onclick=()=>step();
+const bGrav=document.getElementById("bGrav");
+bGrav.onclick=()=>{
+  grav=!grav;
+  bGrav.classList.toggle("on",grav);
+  bGrav.textContent = grav ? "重力" : "失重";
+};
+document.getElementById("bClear").onclick=()=>{
+  if(!confirm("清空整个庭院?")) return;
+  id.fill(0); life.fill(0); vv.fill(0);
+  const gy=rows-4;
+  for(let y=gy;y<rows;y++) for(let x=0;x<cols;x++) set(y*cols+x,E.STEEL);
+};
+addEventListener("keydown", e=>{
+  const k=(e.key||"").toLowerCase();
+  if(k>="1"&&k<="9"){ const t=order[+k-1]; if(t!==undefined) select(t); }
+  else if(k==="0"){ const t=order[9]; if(t!==undefined) select(t); }
+  else if(k==="x"){ cur=E.A; for(const kk in btns) btns[kk].classList.remove("on"); }
+  else if(k==="["){ brush=Math.max(1,brush-1); brushRange.value=brush; bsz.textContent=brush; }
+  else if(k==="]"){ brush=Math.min(40,brush+1); brushRange.value=brush; bsz.textContent=brush; }
+  else if(k===" "){ e.preventDefault(); bPause.onclick(); }
+  else if(k==="n"){ step(); }
+  else if(k==="g"){ bGrav.onclick(); }
+  else if(k==="c"){ document.getElementById("bClear").onclick(); }
+});
+
+// ---------- 启动 ----------
+function fit(){
+  const st=document.getElementById("stage").getBoundingClientRect();
+  const w=Math.max(320, st.width-32), h=Math.max(240, st.height-32);
+  const old = N ? { id:id.slice(), c:cols, r:rows } : null;    // 尺寸变化时把旧内容贴回左上角
+  buildGrid(w,h);
+  if(old){
+    for(let y=0;y<Math.min(old.r,rows);y++) for(let x=0;x<Math.min(old.c,cols);x++){
+      id[y*cols+x] = old.id[y*old.c+x];
+    }
+  } else reset();
+}
+fit();
+select(E.SAND);
+addEventListener("resize", ()=>{ fit(); });
+requestAnimationFrame(loop);
+
+document.getElementById("stats").innerHTML =
+  '网格 <b>'+cols+'×'+rows+'</b> ('+N.toLocaleString()+' 格)<br>'+
+  '单元 <b>'+CELL+'px</b> · 逻辑 60Hz<br>'+
+  '<span style="color:#7f8ba3">火会烧油、烧木、烧藤;酸会吃掉钢沙石;岩浆融冰化汽;种子遇水长成藤。自己试什么烧什么。</span>';
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">熵之花园 · Garden of Entropy</h2>
+    <p class="hp-lead">十五种材料在网格上互相反应：沙会塌、水会流、火会烧、岩浆遇水凝成石头。你在画画，物理规则自己在演。</p>
+    <section class="hp-s"><h3>这个页面在玩什么</h3><p>整块画布是一张 192×142 的方格纸，每格只存一个数字 —— 它是什么材料。每一帧，程序只看每一格的邻居（上下左右），按固定规则决定它要不要挪一格、变成别的材料、或者自己消失。</p><p>没有任何一行代码在控制'水流到哪儿'或'火往哪儿烧'。你看到的每一条火线、每一次塌方，都是这几十条局部规则反复执行几万遍之后自己长出来的。</p><p>所以它叫'熵之花园'：秩序不断被消耗，材料不断趋向混乱、但又在混乱里冒出旋涡、结晶和藤蔓这种'有序结构'。</p></section>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>元胞自动机 (Cellular Automaton)</b>　把世界切成格子，每格状态只由自己和邻居决定，同步地一起更新。这是最简单的'能长出复杂结构'的数学模型，康威生命游戏是它最出名的表亲。真正有趣的现象都发生在'很多次迭代之后'，而不是某一条规则里。</p><p><b>质量守恒的交换语义</b>　格子之间的移动不是'复制粘贴'，而是交换（swap）：A 挤走 B 时 B 被放到 A 原来的位置。这样沙、水、油的总量严格守恒 —— 一滴水不会因为流来流去就多出来，所以你能真实地看到'水位'。只有相变（岩浆遇水 → 石头+蒸汽）才会真正改变粒子总数，而且也是等量替换。</p><p><b>密度与浮力</b>　液体和粉末能不能互换位置，看密度：钢 100 &gt; 石 90 &gt; 冰 80 &gt; 沙 70 &gt; 岩浆 60 &gt; 水 40 &gt; 酸 38 &gt; 油 30。所以油永远浮在水上、石头沉底、木头能漂。这一条把'浮沉'压缩成了一个比较大小的过程。</p><p><b>概率型规则</b>　很多规则带概率（比如岩浆往下的概率 0.9、横向 0.5）。这不是偷懒：真实颗粒流动本来就是随机的，加了随机性才能复现沙堆的'休止角'、液体飞溅的锯齿边缘。这类模型叫随机元胞自动机，也常被当成蒙特卡罗方法的最简版。</p><p><b>相变与能量</b>　岩浆遇水：水瞬间蒸发成蒸汽、岩浆自己凝成石头（1 水 + 1 岩浆 → 1 蒸汽 + 1 石头）。冰遇火化成水，可燃物（木/油/藤/种子）遇火点燃，酸能溶解沙石钢和植物。这些都是'局部能量输入把材料推过相变点'的教科书写法，只不过这里没有温度场，只有硬编码的触发规则。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左栏点材料（或用键盘 1-9 / 0 / x），大小滑块调笔刷，鼠标在画布上按住拖动就画。</li><li>空格暂停 / n 单步 / g 翻转重力方向 / c 清空重来。</li><li>右键（或选'橡皮'）擦除。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>在岩浆池上挖个口，让岩浆滴进左边水塘 —— 看蒸汽柱和石头坝怎么自己长出来。</li><li>把沙从木架顶上倒下去，看休止角。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>

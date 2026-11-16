@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Evolve a Walker · 进化出走路</title>
+<style>
+  :root{ --bg:#07090f; --panel:rgba(18,22,34,.84); --line:rgba(255,255,255,.09);
+         --txt:#e2e8f6; --dim:#79859f; --acc:#7ee0a0; --warm:#ffc46b; --bad:#ff8f8f; }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{ background:radial-gradient(1100px 760px at 30% 10%,#111a2b 0%,#07090f 62%);
+        color:var(--txt); font:12.5px/1.55 "Cascadia Mono","Consolas",ui-monospace,monospace; user-select:none; }
+  #cv{position:fixed; inset:0; width:100vw; height:100vh; display:block}
+
+  #bar{position:fixed; left:14px; top:14px; z-index:10; display:flex; flex-wrap:wrap; gap:9px; align-items:center;
+       background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:9px 12px;
+       backdrop-filter:blur(12px); box-shadow:0 14px 44px rgba(0,0,0,.6); max-width:calc(100vw - 28px)}
+  #bar h1{font-size:13px; letter-spacing:.13em; font-weight:600}
+  #bar h1 span{color:var(--acc)}
+  .sep{width:1px; height:20px; background:var(--line)}
+  button{font:inherit; color:var(--txt); background:rgba(255,255,255,.05); border:1px solid var(--line);
+         border-radius:7px; padding:4px 10px; cursor:pointer; transition:.12s}
+  button:hover{background:rgba(255,255,255,.15)}
+  button.on{background:rgba(126,224,160,.16); border-color:var(--acc); color:#fff}
+  label.sl{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:11.5px}
+  label.sl b{color:var(--txt); font-weight:500; min-width:40px; text-align:right}
+  input[type=range]{-webkit-appearance:none; width:74px; height:3px; background:#2a3344; border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--acc); cursor:pointer}
+
+  #hud{position:fixed; right:14px; top:14px; z-index:10; background:var(--panel); border:1px solid var(--line);
+       border-radius:12px; padding:9px 12px; backdrop-filter:blur(12px); min-width:196px; line-height:1.85}
+  #hud .row{display:flex; justify-content:space-between; gap:14px; color:var(--dim); font-size:11.5px}
+  #hud .row b{color:var(--txt); font-weight:500}
+  #hud .big{font-size:19px; color:var(--acc); font-weight:600; letter-spacing:.02em}
+  #chart{display:block; width:100%; height:54px; margin-top:8px; border-radius:6px; background:rgba(0,0,0,.35)}
+  #tip{position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:10; color:var(--dim);
+       font-size:11.5px; text-align:center; background:rgba(10,13,22,.62); border:1px solid var(--line);
+       border-radius:9px; padding:6px 15px; backdrop-filter:blur(8px); pointer-events:none}
+  #tip b{color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="bar">
+  <h1>进化出<span>走路</span></h1>
+  <div class="sep"></div>
+  <label class="sl">种群 <input type="range" id="sPop" min="8" max="60" step="2" value="24"><b id="vPop">24</b></label>
+  <label class="sl">变异 <input type="range" id="sMut" min="0.02" max="0.8" step="0.02" value="0.22"><b id="vMut">0.22</b></label>
+  <label class="sl">时长 <input type="range" id="sT" min="3" max="18" step="1" value="9"><b id="vT">9s</b></label>
+  <label class="sl">速度 <input type="range" id="sSpeed" min="1" max="16" step="1" value="4"><b id="vSpeed">4ms</b></label>
+  <div class="sep"></div>
+  <button id="bPause">暂停</button>
+  <button id="bReset">重置进化</button>
+</div>
+
+<div id="hud">
+  <div class="row"><span>世代</span><b id="hGen">0</b></div>
+  <div class="row"><span>最佳适应度</span><b id="hFit" class="big">0.0</b></div>
+  <div class="row"><span>走了多远</span><b id="hDist">0 m</b></div>
+  <div class="row"><span>节段数</span><b id="hSeg">0</b></div>
+  <div class="row"><span>评估速度</span><b id="hSpeed">0/s</b></div>
+  <canvas id="chart" width="360" height="108"></canvas>
+</div>
+
+<div id="tip">
+  屏幕上是<b>当前最佳个体</b>正在实时行走 · 想让它可以看得到结果就等它一代代自己进化 · 断掉重力它会掉下去 = 学废了
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   进化出走路 —— 用遗传算法 + 物理模拟,让一个"弹簧-节段"生物学会行走
+
+   物理:Verlet 积分 + 距离约束(软约束迭代求解),圆盘当节段
+   基因:每节段长度 + 每个关节的振幅/相位 + 频率
+   控制:中枢模式发生器(CPG)—— 用正弦波驱动关节目标角,不训练神经网络
+   适应度:净位移 - 能耗惩罚
+   ============================================================ */
+
+// ---------- 可复现随机 ----------
+let seed = 20261017;
+function rnd(){                              // mulberry32
+  seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+  let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+const rr = (a,b) => a + (b-a)*rnd();
+const gauss = () => (rnd()+rnd()+rnd()+rnd()-2)*0.7;      // 近似正态
+
+// ---------- 物理常量(单位:米/秒) ----------
+const GRAV   = -9.8;
+const DT     = 1/120;          // 物理步长(Verlet + 约束迭代,1/120 足够稳)
+const DAMP   = 0.006;          // 空气阻尼
+const ITER   = 6;              // 距离约束迭代次数
+const GROUND = 0;              // 地面 y
+const PR     = 0.16;           // 节段半径(米)
+const MAXV   = 3.0;            // 单节点速度上限(米/秒)。Verlet 里"位移=速度",
+                               // 不设阀的话关节伺服 + 地面顶起会把能量越喂越大,整条链直接飞走
+const CEIL   = 6.0;            // 数值安全上限(米)。只防"数值爆炸",高到不会影响任何正常姿态。
+                               // 真正的防飞机制在下面的 COM 锁:关节力矩是内力,不许把质心搬走。
+const AIR_CUT = 1.0;           // 连续腾空超过这个秒数就判定"在飞",直接终止这次评估并给差评
+const AIR_K  = 2.0;            // 腾空时长的惩罚系数(每腾空 1 秒扣多少米)
+
+// ---------- 生物 ----------
+const MAXP = 9;                // 最多 8 个节段(9 个节点)
+function makeCreature(genome){
+  const n = genome.segLen.length;             // 节段数
+  const np = n + 1;                           // 节点数
+  const px=new Float64Array(np), py=new Float64Array(np);
+  const ox=new Float64Array(np), oy=new Float64Array(np);
+  const inv=new Float64Array(np);
+  // 初始姿态:一条水平链,离地一点距离
+  let x = 0;
+  for(let i=0;i<np;i++){
+    px[i]=x; py[i]=1.35;
+    x += genome.segLen[i] ?? genome.segLen[n-1];
+    inv[i]=1;
+  }
+  // 关键:Verlet 的速度是 (px-ox)。ox/oy 全 0 而 px/py 不是 0,
+  // 第一步就会得到"速度 = 初始位置"这种几千倍于重力的假速度,物理当场炸掉
+  ox.set(px); oy.set(py);
+  // 注意:不要把头部钉在世界原点(inv[0]=0)。钉住之后整条链只能绕着那个钉子甩,
+  // 质心净位移永远是 0,屏幕上就表现为"原地转圈",进化也就无从谈起。
+  return { n, np, px, py, ox, oy, inv,
+           rest: genome.segLen.slice(),
+           base: [], cur: new Float64Array(n+1),
+           genome, dist:0, energy:0, t:0, alive:true, trace:[] };
+}
+// 初始关节角(全部伸直 = 弧度为 0)
+function resetJointFrames(c){
+  for(let i=0;i<c.n;i++) c.base[i]=0;
+}
+// 记录当前关节角(相对上一根连杆)
+function readAngles(c){
+  for(let i=1;i<c.n;i++){
+    const a1=Math.atan2(c.py[i]-c.py[i-1], c.px[i]-c.px[i-1]);
+    const a2=Math.atan2(c.py[i+1]-c.py[i], c.px[i+1]-c.px[i]);
+    let d = a2-a1;
+    while(d> Math.PI) d-=2*Math.PI;
+    while(d<-Math.PI) d+=2*Math.PI;
+    c.cur[i]=d;
+  }
+}
+
+// ---------- 物理一步 ----------
+function physicsStep(c, ctrl){
+  // Verlet 积分
+  for(let i=0;i<c.np;i++){
+    let vx=(c.px[i]-c.ox[i])*(1-DAMP), vy=(c.py[i]-c.oy[i])*(1-DAMP);
+    const sp = Math.sqrt(vx*vx+vy*vy);
+    if(sp > MAXV*DT){ const s = MAXV*DT/sp; vx*=s; vy*=s; }     // 速度上限,防数值爆破
+    c.ox[i]=c.px[i]; c.oy[i]=c.py[i];
+    c.px[i]+=vx; c.py[i]+=vy + GRAV*DT*DT;
+  }
+  // 关节力矩:把关节角推向上一个连杆的基角 + 目标弯曲量
+  // COM 锁 —— 先记下伺服前的质心,伺服后把质心的净偏移扣回去。
+  // 关节(肌肉)是内力:内部作动只能改变姿态,不能凭空把质心搬走。真实生物能前进,
+  // 靠的是脚掌在地面上"抓"出的反作用力,而不是身体自己把自己瞬移。少了这把锁,
+  // 位置级伺服会每步把远端子树旋转+平移一下,几十步下来整条链就悬空爬升了 = "飞"。
+  let c0x=0, c0y=0;
+  for(let i=0;i<c.np;i++){ c0x+=c.px[i]; c0y+=c.py[i]; }
+  c0x /= c.np; c0y /= c.np;
+  for(let i=1;i<c.n;i++){
+    const a1=Math.atan2(c.py[i]-c.py[i-1], c.px[i]-c.px[i-1]);
+    const a2=Math.atan2(c.py[i+1]-c.py[i], c.px[i+1]-c.px[i]);
+    let d = a2-a1;
+    while(d> Math.PI) d-=2*Math.PI;
+    while(d<-Math.PI) d+=2*Math.PI;
+    const target = ctrl[i-1];                        // 目标弯曲量(弧度)
+    // 旋转 c.px[i+1..] 绕关节 i,使 d → target(只对远端施力,更稳定)
+    const err = target - d;
+    if(Math.abs(err) < 1e-6) continue;
+    const k = Math.max(-0.12, Math.min(0.12, err*0.3));
+    const cos=Math.cos(k), sin=Math.sin(k);
+    for(let q=i+1;q<c.np;q++){
+      const dx=c.px[q]-c.px[i], dy=c.py[q]-c.py[i];
+      c.px[q]=c.px[i]+dx*cos-dy*sin;
+      c.py[q]=c.py[i]+dx*sin+dy*cos;
+    }
+  }
+  // COM 锁收尾:把伺服造成的质心位移整条链一起扣掉(px 和 ox 同时平移 → 速度不变,
+  // 只是"身体没有整体腾挪")。这样关节仍然能摆出各种姿态,但前进只能靠地面接触。
+  let c1x=0, c1y=0;
+  for(let i=0;i<c.np;i++){ c1x+=c.px[i]; c1y+=c.py[i]; }
+  c1x /= c.np; c1y /= c.np;
+  const ldx=c1x-c0x, ldy=c1y-c0y;
+  if(ldx!==0 || ldy!==0){
+    for(let i=0;i<c.np;i++){
+      c.px[i]-=ldx; c.py[i]-=ldy;
+      c.ox[i]-=ldx; c.oy[i]-=ldy;
+    }
+  }
+  // 连杆刚性约束(只迭代距离,保持轻量)
+  for(let it=0; it<ITER; it++){
+    for(let i=0;i<c.n;i++){
+      const a=i,b=i+1, rest=c.rest[i];
+      let dx=c.px[b]-c.px[a], dy=c.py[b]-c.py[a];
+      let d=Math.sqrt(dx*dx+dy*dy) || 1e-9;      // 别用 Math.hypot:它要处理变参,慢一个量级
+      const diff=(d-rest)/d, ia=c.inv[a], ib=c.inv[b], s=ia+ib;
+      if(s===0) continue;
+      c.px[a]+=dx*diff*(ia/s); c.py[a]+=dy*diff*(ia/s);
+      c.px[b]-=dx*diff*(ib/s); c.py[b]-=dy*diff*(ib/s);
+    }
+  }
+  // 地面接触 + 自碰撞(每个物理步只做一次,不放进迭代里,省好几倍开销)
+  for(let i=0;i<c.np;i++){
+    const pen = GROUND + PR - c.py[i];
+    if(pen > 0){
+      // 落地必须是"完全非弹性"的:把位置顶回去的同时把参考点也抬起来。
+      // 只顶位置不改 oy,被顶起来的这点高度下一步就变成向上速度 —— 地面会像蹦床一样把链子弹上天。
+      c.py[i] += pen;
+      if(c.oy[i] < c.py[i]) c.oy[i] = c.py[i];
+      c.ox[i] += (c.px[i]-c.ox[i])*0.5;      // 摩擦:贴地时水平速度砍一半 —— 蠕虫模式能往前走靠的就是它
+    }
+    // 顶棚(和地面同理,完全非弹性):不许飞
+    if(c.py[i] > CEIL){
+      c.py[i] = CEIL;
+      if(c.oy[i] > CEIL) c.oy[i] = CEIL;
+    }
+  }
+  for(let i=0;i<c.np;i++) for(let q=i+3;q<c.np;q++){
+    let dx=c.px[q]-c.px[i], dy=c.py[q]-c.py[i];
+    let d=Math.sqrt(dx*dx+dy*dy) || 1e-9;
+    const min=PR*2;
+    if(d<min){ const push=(min-d)/d*0.5;
+      c.px[i]-=dx*push; c.py[i]-=dy*push; c.px[q]+=dx*push; c.py[q]+=dy*push; }
+  }
+}
+// 质心(诊断与适应度用)
+function com(c){
+  let sx=0, sy=0;
+  for(let i=0;i<c.np;i++){ sx+=c.px[i]; sy+=c.py[i]; }
+  return [sx/c.np, sy/c.np];
+}
+
+// ---------- CPG 控制律 ----------
+function control(c, g, simT){
+  const w = 2*Math.PI*g.freq;
+  const out = c._ctrl || (c._ctrl = new Float64Array(c.n));
+  for(let i=0;i<c.n;i++) out[i] = g.amp[i] * Math.sin(w*simT + g.phase[i]);
+  return out;
+}
+
+// ---------- 评估一个个体 ----------
+function evaluate(genome, seconds){
+  const c = makeCreature(genome);
+  const steps = Math.round(seconds/DT);
+  const c0 = com(c);
+  readAngles(c);
+  const zero = new Float64Array(c.n+1);
+  for(let i=1;i<c.n;i++) zero[i]=c.cur[i];
+  let air = 0;                                     // 整体腾空的累计时长
+  let airRun = 0;                                  // 连续腾空时长(落地就清零)
+  let flew = false;                                // 判定为"在飞"而不是"在走"
+  for(let s=0;s<steps;s++){
+    const ctrl = control(c, genome, s*DT);
+    physicsStep(c, ctrl);
+    c.t += DT;
+    readAngles(c);
+    for(let i=1;i<c.n;i++) c.energy += Math.abs(c.cur[i]-zero[i])*DT;
+    if(!isFinite(c.px[0]) || !isFinite(c.py[0])){ c.alive=false; flew=true; break; }   // 数值炸了就弃掉这个个体
+    // 没有任何节点贴着地面 = 在飞。"飞出去 700 米"不是走路,必须扣掉
+    let touch=false;
+    for(let i=0;i<c.np;i++) if(c.py[i] < PR*2){ touch=true; break; }
+    if(!touch){
+      air += DT; airRun += DT;
+      // 一次腾空能持续 1 秒(落下来要 0.9 秒,弹一下算合理),再长就说明它是在飞不是在走
+      if(airRun > AIR_CUT){ c.alive=false; flew=true; break; }
+    } else airRun = 0;
+  }
+  const c1 = com(c);
+  const travelled = isFinite(c1[0]) ? c1[0] - c0[0] : -1;
+  // 适应度:质心净位移为主,腾空与能耗只做惩罚项。
+  // 原来的"摔倒"判定(c.py[0] < -0.25)永远触发不了 —— 地面接触每一步都会把节点顶回 PR 高度,
+  // 而 2D 贴地蠕虫本来也不存在"摔倒",所以那个 2.5 的惩罚是纯死代码。
+  const fit = travelled - air*AIR_K - c.energy*0.0008;
+  return { fit: flew ? Math.min(fit, travelled*0.3) - 4 : fit,
+           travelled, air, flew, creature: c };
+}
+
+// ---------- 基因 ----------
+function randomGenome(segs){
+  const n = segs!==undefined ? segs : (3 + Math.floor(rnd()*3));
+  const g = { segLen:[], amp:[], phase:[], freq: rr(0.6,1.7) };
+  for(let i=0;i<n;i++) g.segLen.push(rr(0.75,1.35));
+  for(let i=0;i<Math.max(0,n-1);i++){ g.amp.push(rr(-0.9,0.9)); g.phase.push(rr(-Math.PI,Math.PI)); }
+  g.amp.push(0); g.phase.push(0);
+  return g;
+}
+function cloneGenome(g){
+  return { segLen:g.segLen.slice(), amp:g.amp.slice(), phase:g.phase.slice(), freq:g.freq };
+}
+function mutate(g, rate){
+  const out = cloneGenome(g);
+  // 参数扰动
+  for(let i=0;i<out.segLen.length;i++) out.segLen[i] = Math.max(0.5, Math.min(1.8, out.segLen[i] + gauss()*0.09*rate/0.22));
+  for(let i=0;i<out.amp.length;i++){
+    out.amp[i]   = Math.max(-1.6, Math.min(1.6, out.amp[i]   + gauss()*0.16*rate/0.22));
+    out.phase[i] = out.phase[i] + gauss()*0.35*rate/0.22;
+  }
+  out.freq = Math.max(0.25, Math.min(2.6, out.freq + gauss()*0.12*rate/0.22));
+  // 小概率增删节段(结构性变异)
+  if(rnd() < rate*0.22){
+    if(rnd()<0.5 && out.segLen.length < MAXP-1){
+      out.segLen.push(rr(0.75,1.3));
+      out.amp.splice(out.amp.length-1, 0, rr(-0.9,0.9));
+      out.phase.splice(out.phase.length-1, 0, rr(-Math.PI,Math.PI));
+    } else if(out.segLen.length > 2){
+      out.segLen.pop(); out.amp.splice(out.amp.length-2,1); out.phase.splice(out.phase.length-2,1);
+    }
+  }
+  return out;
+}
+
+// ---------- 进化状态 ----------
+let POP = 24, MUT = 0.22, EPISODE = 9;
+let population = [], fitness = [], generation = 0, bestEver = null, bestEverFit = -1e9;
+let history = [];                     // {best, avg}
+let evalClock = 0, evalRate = 0, generationsRun = 0;
+let champion = null, championRun = null;   // 正在被实时演示的那位冠军
+// 增量评估状态:一代(24 个体 × 9 秒物理)几十毫秒,一口气算完会把整页卡住,
+// 所以拆成"每帧只花 speed 毫秒",剩下的时间留给渲染
+let evalQueue = [], evalIdx = 0, evalFits = [];
+
+function initPopulation(){
+  population = []; fitness = [];
+  for(let i=0;i<POP;i++) population.push(randomGenome());
+  generation = 0; bestEver=null; bestEverFit=-1e9; history = [];
+  champion = cloneGenome(population[0]);
+  championRun = null;
+  evalQueue = []; evalIdx = 0; evalFits = [];
+}
+
+function beginGeneration(){
+  evalQueue = population; evalIdx = 0;
+  evalFits = new Array(evalQueue.length).fill(0);
+}
+// 一代评估完:锦标赛选择 + 精英保留 + 变异
+function endGeneration(){
+  let bi = 0, bf = -1e9, sum = 0;
+  for(let i=0;i<evalQueue.length;i++){ const f = evalFits[i]; sum += f; if(f > bf){ bf = f; bi = i; } }
+  if(bf > bestEverFit){ bestEverFit = bf; bestEver = cloneGenome(evalQueue[bi]); }
+  history.push({ best: bf, avg: sum/evalQueue.length });
+  if(history.length>160) history.shift();
+  const idx = evalQueue.map((_,i)=>i).sort((a,b)=>evalFits[b]-evalFits[a]);
+  const next = [cloneGenome(evalQueue[idx[0]])];                     // 精英
+  while(next.length < POP){
+    const a = pickTournament(), b = pickTournament();
+    next.push(mutate(evalFits[a]>=evalFits[b]?evalQueue[a]:evalQueue[b], MUT));
+  }
+  population = next;
+  fitness = []; evalQueue = []; evalIdx = 0; evalFits = [];
+  generation++;
+  // 屏幕上演的就是当前最佳
+  champion = cloneGenome(bestEver || population[0]);
+  championRun = null;
+}
+function pickTournament(){
+  const k=3; let bi=0, bf=-1e9;
+  for(let i=0;i<k;i++){
+    const q = Math.floor(rnd()*evalQueue.length);
+    if(evalFits[q]>bf){ bf=evalFits[q]; bi=q; }
+  }
+  return bi;
+}
+// 同步跑完一整代(启动 / 拖种群滑块时用,允许一次性卡一下)
+function evaluatePopulation(){
+  beginGeneration();
+  for(let i=0;i<evalQueue.length;i++){ evalFits[i] = evaluate(evalQueue[i], EPISODE).fit; evalIdx = i+1; }
+  endGeneration();
+}
+
+// ---------- 渲染 ----------
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let W=0,H=0,DPR=1;
+const PPU_BASE = 62;                        // 每米像素
+let camX = 0, PPU = PPU_BASE;
+function sizeUp(){
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  W = Math.floor(innerWidth*DPR); H = Math.floor(innerHeight*DPR);
+  cv.width=W; cv.height=H;
+}
+const groundY = () => H*0.76;
+const SX = x => W*0.22 + (x - camX)*PPU;
+const SY = y => groundY() - y*PPU;
+
+function drawScene(live){
+  ctx.setTransform(1,0,0,1,0,0);
+  // 背景
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,"#0a1220"); g.addColorStop(0.7,"#070a11"); g.addColorStop(1,"#05060a");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // 地面 + 网格(每米一格,便于看走了多远)
+  const gy = groundY();
+  ctx.strokeStyle="rgba(126,224,160,.22)"; ctx.lineWidth=1*DPR;
+  ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke();
+  ctx.fillStyle="rgba(126,224,160,.05)"; ctx.fillRect(0,gy,W,H-gy);
+  const m0 = Math.floor(camX - (W*0.3)/PPU), m1 = Math.ceil(camX + (W*0.9)/PPU);
+  ctx.font = (10*DPR)+"px ui-monospace, monospace";
+  for(let m=m0;m<=m1;m++){
+    const x=SX(m);
+    if(x<-40||x>W+40) continue;
+    const major = (m%5===0);
+    ctx.strokeStyle = major?"rgba(255,255,255,.10)":"rgba(255,255,255,.04)";
+    ctx.beginPath(); ctx.moveTo(x,gy); ctx.lineTo(x,gy-(major?16:8)*DPR); ctx.stroke();
+    if(major){ ctx.fillStyle="rgba(160,175,200,.5)"; ctx.fillText(m+"m", x+3*DPR, gy+14*DPR); }
+  }
+  if(!live) return;
+  // 生物
+  const c = live;
+  // 轨迹
+  if(c.trace && c.trace.length>1){
+    ctx.strokeStyle="rgba(126,224,160,.25)"; ctx.lineWidth=1.2*DPR;
+    ctx.beginPath(); ctx.moveTo(SX(c.trace[0][0]),SY(c.trace[0][1]));
+    for(const [tx,ty] of c.trace) ctx.lineTo(SX(tx),SY(ty));
+    ctx.stroke();
+  }
+  // 连杆
+  ctx.lineCap="round";
+  for(let i=0;i<c.n;i++){
+    const x1=SX(c.px[i]), y1=SY(c.py[i]), x2=SX(c.px[i+1]), y2=SY(c.py[i+1]);
+    ctx.strokeStyle = i===0 ? "rgba(255,196,107,.95)" : "rgba(126,224,160,.92)";
+    ctx.lineWidth = PR*2*PPU*0.98;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.strokeStyle="rgba(10,14,22,.55)"; ctx.lineWidth=1.2*DPR;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  // 关节
+  for(let i=0;i<c.np;i++){
+    const isHead = (i===0);
+    const r = (isHead?PR*1.35:PR*0.72)*PPU;
+    ctx.fillStyle = isHead ? "#ffc46b" : "#0d1420";
+    ctx.beginPath(); ctx.arc(SX(c.px[i]), SY(c.py[i]), r, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = isHead ? "rgba(255,255,255,.8)" : "rgba(126,224,160,.9)";
+    ctx.lineWidth = 1.4*DPR; ctx.stroke();
+  }
+}
+
+// 适应度曲线
+const chart = document.getElementById("chart"), cctx = chart.getContext("2d");
+function drawChart(){
+  const w=chart.width, h=chart.height;
+  cctx.clearRect(0,0,w,h);
+  if(history.length<2) return;
+  let lo=1e9, hi=-1e9;
+  for(const e of history){ lo=Math.min(lo,e.avg,e.best); hi=Math.max(hi,e.best,e.avg); }
+  if(hi-lo<0.4){ hi=lo+0.4; }
+  const X = i => i/(history.length-1)*(w-4)+2;
+  const Y = v => h-4 - (v-lo)/(hi-lo)*(h-10);
+  // 平均
+  cctx.strokeStyle="rgba(120,140,175,.75)"; cctx.lineWidth=1.4;
+  cctx.beginPath(); history.forEach((e,i)=>{ i?cctx.lineTo(X(i),Y(e.avg)):cctx.moveTo(X(i),Y(e.avg)); }); cctx.stroke();
+  // 最佳
+  cctx.strokeStyle="rgba(126,224,160,.95)"; cctx.lineWidth=1.8;
+  cctx.beginPath(); history.forEach((e,i)=>{ i?cctx.lineTo(X(i),Y(e.best)):cctx.moveTo(X(i),Y(e.best)); }); cctx.stroke();
+  // 零线
+  if(lo<0 && hi>0){ cctx.strokeStyle="rgba(255,143,143,.45)"; cctx.lineWidth=1;
+    cctx.beginPath(); cctx.moveTo(0,Y(0)); cctx.lineTo(w,Y(0)); cctx.stroke(); }
+}
+
+// ---------- 主循环 ----------
+let running = true, speed = 4;       // speed = 每帧留给"进化"的毫秒预算
+let last = performance.now(), acc=0;
+function loop(now){
+  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  if(running){
+    // 增量进化:一帧只算 speed 毫秒,算不完就下一帧接着算 —— 页面不再卡成 PPT
+    const t0 = performance.now();
+    if(!evalQueue.length) beginGeneration();
+    while(evalIdx < evalQueue.length && performance.now()-t0 < speed){
+      evalFits[evalIdx] = evaluate(evalQueue[evalIdx], EPISODE).fit;
+      evalIdx++;
+    }
+    if(evalQueue.length && evalIdx >= evalQueue.length){ endGeneration(); generationsRun++; }
+    evalClock += dt;
+    if(evalClock > 0.5){ evalRate = generationsRun/evalClock; generationsRun=0; evalClock=0; }
+    acc += dt;
+  }
+  // 可视演示:固定用"一份基因组快照"。之前每帧读全局 champion,
+  // 而每代 champion 的节段数都可能变 → control() 读到 undefined,坐标变 NaN 变成一团乱线
+  if(liveSim === null){
+    gap -= dt;
+    if(gap <= 0){
+      const c = makeCreature(champion);
+      liveSim = { g: champion, c, t: 0, frames: 0, c0x: com(c)[0] };
+      championRun = champion;
+      acc = 0;
+    }
+  }
+  let guard=0;
+  while(liveSim && acc >= DT && guard++ < 24){
+    const c = liveSim.c;
+    physicsStep(c, control(c, liveSim.g, liveSim.t));
+    liveSim.t += DT;
+    liveSim.frames++;
+    if(liveSim.frames % 6 === 0){ const m=com(c); c.trace.push([m[0], m[1]]); if(c.trace.length>420) c.trace.shift(); }
+    // 演示也算"飞"了:连续腾空超过 AIR_CUT 就收工,别让它在天上飘走
+    let touch=false;
+    for(let i=0;i<c.np;i++) if(c.py[i] < PR*2){ touch=true; break; }
+    liveSim.airRun = touch ? 0 : (liveSim.airRun || 0) + DT;
+    acc -= DT;
+    if(!isFinite(c.px[0]) || liveSim.t >= EPISODE || liveSim.airRun > AIR_CUT){ liveSim = null; gap = 0.5; break; }   // 演完/飞了/炸了就换新的冠军重演
+  }
+  if(acc > DT*30) acc = 0;
+  // 镜头平滑跟随质心 —— 生物永远待在画面里
+  if(liveSim){ const cx = com(liveSim.c)[0]; camX += (cx - camX)*0.18; }
+  drawScene(liveSim ? liveSim.c : null);
+  drawChart();
+  // 读数
+  hGen.textContent = generation;
+  hFit.textContent = bestEverFit.toFixed(2);
+  hDist.textContent = liveSim ? (com(liveSim.c)[0] - liveSim.c0x).toFixed(2)+" m" : "--";
+  hSeg.textContent = champion ? champion.segLen.length : 0;
+  hSpeed.textContent = evalRate.toFixed(1)+"/s";
+  requestAnimationFrame(loop);
+}
+let liveSim = null, gap = 0;
+
+// ---------- UI ----------
+const hGen=document.getElementById("hGen"), hFit=document.getElementById("hFit"),
+      hDist=document.getElementById("hDist"), hSeg=document.getElementById("hSeg"), hSpeed=document.getElementById("hSpeed");
+const sPop=document.getElementById("sPop"), vPop=document.getElementById("vPop");
+const sMut=document.getElementById("sMut"), vMut=document.getElementById("vMut");
+const sT=document.getElementById("sT"), vT=document.getElementById("vT");
+sPop.oninput = ()=>{ POP=+sPop.value; vPop.textContent=POP; initPopulation(); };
+sMut.oninput = ()=>{ MUT=+sMut.value; vMut.textContent=MUT.toFixed(2); };
+sT.oninput   = ()=>{ EPISODE=+sT.value; vT.textContent=EPISODE+"s"; };
+const sSpeed=document.getElementById("sSpeed"), vSpeed=document.getElementById("vSpeed");
+sSpeed.oninput = ()=>{ speed=+sSpeed.value; vSpeed.textContent=speed+"ms"; };
+const bPause=document.getElementById("bPause");
+bPause.onclick = ()=>{ running=!running; bPause.classList.toggle("on",!running); bPause.textContent = running?"暂停":"继续"; };
+document.getElementById("bReset").onclick = ()=>{ seed = 20261017; initPopulation(); liveSim=null; camX=0; };
+addEventListener("keydown", e=>{
+  const k=(e.key||"").toLowerCase();
+  if(k===" "){ e.preventDefault(); bPause.click(); }
+  else if(k==="r") document.getElementById("bReset").click();
+});
+
+// ---------- 启动 ----------
+sizeUp(); addEventListener("resize", sizeUp);
+initPopulation();
+evaluatePopulation();          // 先跑完第一代,屏幕上立刻有东西看
+requestAnimationFrame(loop);
+</script>
+<!-- dsh-help:start -->
+<style id="dshHelpCss">
+#dshHelpBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 13px;border-radius:999px;
+  font:12.5px/1 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;letter-spacing:.08em;
+  color:#9ff0d4;background:rgba(16,26,32,.78);border:1px solid rgba(126,224,192,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;opacity:.72;
+  transition:opacity .16s,transform .16s;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+#dshHelpBtn:hover{opacity:1;transform:translateY(-1px)}
+#dshHelpBtn:focus-visible{outline:2px solid #7ee0c0;outline-offset:2px}
+#dshHelpMask{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+  background:rgba(4,7,11,.74);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:24px}
+#dshHelpMask.on{display:flex}
+#dshHelpBox{width:min(94vw,760px);max-height:86vh;overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(180deg,rgba(23,29,38,.99),rgba(15,19,26,.99));
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px 16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);color:#dbe2ee;user-select:text;-webkit-user-select:text;
+  font:13.5px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+#dshHelpBox h2{font-size:16px;letter-spacing:.06em;margin:0 0 2px;color:#eef4ff}
+#dshHelpBox .hp-lead{margin:6px 0 14px;color:#9aa7bd;font-size:13px}
+#dshHelpBox h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7ee0c0;
+  margin:18px 0 7px;font-weight:600}
+#dshHelpBox h3::after{content:"";display:block;height:1px;margin-top:6px;
+  background:linear-gradient(90deg,rgba(126,224,192,.5),rgba(126,224,192,0))}
+#dshHelpBox p{margin:0 0 9px;color:#c6d0e0}
+#dshHelpBox p b{color:#eaf1ff;font-weight:600}
+#dshHelpBox ul{margin:0 0 6px;padding-left:18px;color:#c6d0e0}
+#dshHelpBox li{margin:0 0 5px}
+#dshHelpBox li::marker{color:#7ee0c0}
+#dshHelpBox footer{margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);
+  color:#6f7b90;font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#dshHelpX{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c6d0e0;
+  font-size:15px;line-height:1;cursor:pointer}
+#dshHelpX:hover{background:rgba(255,255,255,.12);color:#fff}
+#dshHelpBox{position:relative}
+@media (max-width:560px){#dshHelpBox{padding:16px 16px 12px}#dshHelpBtn{right:10px;bottom:10px}}
+</style>
+<button id="dshHelpBtn" type="button" aria-haspopup="dialog" aria-controls="dshHelpMask">说明</button>
+<div id="dshHelpMask" aria-hidden="true">
+  <div id="dshHelpBox" role="dialog" aria-modal="true" aria-labelledby="dshHelpTitle">
+    <button id="dshHelpX" type="button" aria-label="关闭说明">✕</button>
+    <h2 id="dshHelpTitle">进化出走路 · Evolve a Walker</h2>
+    <p class="hp-lead">一只由 2~8 根连杆组成的软体虫子，靠每根关节按正弦波扭动来移动。没人告诉它怎么走 —— 它自己进化出来。</p>
+    <section class="hp-s"><h3>背后的数学 / 物理</h3><p><b>遗传算法 (Genetic Algorithm)</b>　每一代养 24 只虫子，每只的基因是'每节多长、关节扭多大、扭多快、每节相位差多少'。跑 9 秒，谁往前走得远谁的适应度高。然后：表演最好的个体直接进下一代（精英保留）、随机挑三个里最好的当父本（锦标赛选择）、把父本的基因加点随机扰动（变异）生下后代。重复几百代，'走路'就作为副产品出现了。</p><p><b>Verlet 物理</b>　位置积分而不是速度积分：每一步先记住'上一步在哪'，速度隐式地等于两点之差，再把它往前推一次；连杆则用'距离约束'迭代 6 次硬拉回原长。这种写法天然稳定、不需要求解矩阵，是布娃娃、绳索、软体的标准做法。</p><p><b>CPG：中枢模式发生器</b>　真实的昆虫和鱼游泳、爬行都靠一段自激振荡的神经网络节律（CPG），输出近似正弦。这里直接把它简化成 out = 振幅 × sin(2πf·t + 相位)，每个关节一个参数。你以为'走路'需要聪明的控制？其实很多生物只需要几条正弦波加正确的相位差。</p><p><b>为什么它曾经会'飞'？</b>　关节伺服是'位置级'的作动器：它直接把关节后面的整段身体旋转过去，等于每步把身体瞬移一小段。真实的肌肉做不到这件事 —— 内力不能改变质心，前进必须靠脚蹬地面拿到反作用力。所以现在加了 COM 锁：伺服前后把质心的净位移扣掉，关节只能改变姿态、不能凭空搬运身体。少了这把锁，进化一定会学会'蹦着飞'（那才是适应度最大化的捷径）。</p><p><b>适应度 = 走过去多远</b>　fit = 水平位移 − 2×腾空秒数 − 0.0008×总能量消耗。腾空惩罚让它会贴地，能量项让动作尽量省。适合度里写什么，进化就长什么 —— 这是整个实验最有教育意义的一句话。</p></section>
+    <section class="hp-s"><h3>怎么玩</h3><ul><li>左上工具栏：暂停 / 单步，滑块调进化速度（每帧花多少毫秒算评估）、变异率。</li><li>右上 HUD 看当前冠军的世代、前进距离、速度、代数。</li><li>画面里跑的是当前冠军的复演，一只虫子演完 9 秒换下一代。</li></ul></section>
+    <section class="hp-s"><h3>值得盯着看的</h3><ul><li>盯着看几十代：早期是乱抽搐，中期出现'拱一下滑一段'，后期能连贯地波浪式前进。</li><li>把变异率调大，看到进化被'打散'；调太小，则容易卡在只会抖的局部最优里。</li></ul></section>
+    <footer><span>随时点右下角「说明」或按 H 重开</span><span>Esc / 点空白处 关闭</span></footer>
+  </div>
+</div>
+<script id="dshHelpJs">
+(function(){
+  var btn=document.getElementById("dshHelpBtn"), mask=document.getElementById("dshHelpMask");
+  if(!btn || !mask) return;
+  var box=document.getElementById("dshHelpBox"), x=document.getElementById("dshHelpX");
+  var last=null;
+  function open(){
+    last=document.activeElement;
+    mask.classList.add("on"); mask.setAttribute("aria-hidden","false");
+    box.scrollTop=0;
+    setTimeout(function(){ x && x.focus(); },0);
+  }
+  function close(){
+    mask.classList.remove("on"); mask.setAttribute("aria-hidden","true");
+    if(last && last.focus) try{ last.focus(); }catch(e){}
+  }
+  btn.addEventListener("click",function(e){ e.preventDefault(); open(); });
+  x && x.addEventListener("click",close);
+  mask.addEventListener("click",function(e){ if(e.target===mask) close(); });
+  // Esc 关闭;H 打开(k 只在没有输入框聚焦时生效,避免抢页面快捷键)
+  window.addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;
+    var typing = t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable);
+    if(e.key==="Escape" && mask.classList.contains("on")){ close(); e.stopPropagation(); return; }
+    if(typing) return;
+    if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey){ open(); }
+  },true);
+})();
+</script>
+<!-- dsh-help:end -->
+</body>
+</html>
